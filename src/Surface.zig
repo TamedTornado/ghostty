@@ -251,6 +251,7 @@ const Mouse = struct {
     /// Pending scroll amounts for high-precision scrolls
     pending_scroll_x: f64 = 0,
     pending_scroll_y: f64 = 0,
+    smooth_scroll_bias: i2 = 0,
 
     /// True if the mouse is hidden
     hidden: bool = false,
@@ -1201,6 +1202,9 @@ fn selectionScrollTick(self: *Surface) !void {
         );
         return;
     }
+
+    self.mouse.pending_scroll_y = 0;
+    self.resetSmoothScrollLocked();
 
     // Scroll the viewport as required
     t.scrollViewport(.{ .delta = delta });
@@ -2808,7 +2812,11 @@ pub fn keyCallback(
             try self.setSelection(null);
         }
 
-        if (self.config.scroll_to_bottom.keystroke) self.io.terminal.scrollViewport(.bottom);
+        if (self.config.scroll_to_bottom.keystroke) {
+            self.io.terminal.scrollViewport(.bottom);
+            self.mouse.pending_scroll_y = 0;
+            self.clearSmoothScrollLocked();
+        }
 
         try self.queueRender();
     }
@@ -3382,6 +3390,7 @@ pub fn refreshCallback(self: *Surface) !void {
 // supported by our screen since scrollback is only vertical).
 const ScrollAmount = struct {
     delta: isize = 0,
+    smooth_offset: f64 = 0,
 
     pub fn direction(self: ScrollAmount) enum { down_left, up_right } {
         return if (self.delta < 0) .down_left else .up_right;
@@ -3391,6 +3400,34 @@ const ScrollAmount = struct {
         return @abs(self.delta);
     }
 };
+
+const ScrollRows = struct {
+    delta: isize = 0,
+    remainder: f64 = 0,
+};
+
+fn scrollPixelsToRows(offset: f64, cell_size: f64) ScrollRows {
+    assert(cell_size > 0);
+
+    const amount = offset / cell_size;
+    const delta: isize = @intFromFloat(@trunc(amount));
+    const remainder = offset - @as(f64, @floatFromInt(delta)) * cell_size;
+    return .{
+        .delta = delta,
+        .remainder = remainder,
+    };
+}
+
+test "scrollPixelsToRows keeps fractional remainder" {
+    const testing = std.testing;
+
+    try testing.expectEqual(ScrollRows{ .delta = 0, .remainder = 9 }, scrollPixelsToRows(9, 20));
+    try testing.expectEqual(ScrollRows{ .delta = 0, .remainder = -9 }, scrollPixelsToRows(-9, 20));
+    try testing.expectEqual(ScrollRows{ .delta = 1, .remainder = 3 }, scrollPixelsToRows(23, 20));
+    try testing.expectEqual(ScrollRows{ .delta = -1, .remainder = -3 }, scrollPixelsToRows(-23, 20));
+    try testing.expectEqual(ScrollRows{ .delta = 2, .remainder = 0 }, scrollPixelsToRows(40, 20));
+    try testing.expectEqual(ScrollRows{ .delta = -2, .remainder = 0 }, scrollPixelsToRows(-40, 20));
+}
 
 /// Mouse scroll event. Negative is down, left. Positive is up, right.
 ///
@@ -3450,23 +3487,17 @@ pub fn scrollCallback(
         // direction and undo a pending scroll.
         const poff: f64 = self.mouse.pending_scroll_y + yoff_adjusted;
 
-        // If the new offset is less than a single unit of scroll, we save
-        // the new pending value and do not scroll yet.
-        if (@abs(poff) < cell_size) {
-            self.mouse.pending_scroll_y = poff;
-            break :y .{};
-        }
+        // Scroll by any complete rows and save the fractional remainder.
+        const rows = scrollPixelsToRows(poff, cell_size);
+        self.mouse.pending_scroll_y = rows.remainder;
 
-        // We scroll by the number of rows in the offset and save the remainder
-        const amount = poff / cell_size;
-        assert(@abs(amount) >= 1);
-        self.mouse.pending_scroll_y = poff - (amount * cell_size);
-
-        // Round towards zero.
-        const delta: isize = @intFromFloat(@trunc(amount));
-        assert(@abs(delta) >= 1);
-
-        break :y .{ .delta = delta };
+        break :y .{
+            .delta = rows.delta,
+            .smooth_offset = if (comptime builtin.target.os.tag.isDarwin())
+                if (scroll_mods.precision) rows.remainder else 0
+            else
+                0,
+        };
     };
 
     // For detailed comments see the y calculation above.
@@ -3512,6 +3543,8 @@ pub fn scrollCallback(
             self.io.terminal.flags.mouse_event == .none and
             self.io.terminal.modes.get(.mouse_alternate_scroll))
         {
+            self.resetSmoothScrollLocked();
+
             if (y.delta != 0) {
                 // When we send mouse events as cursor keys we always
                 // clear the selection.
@@ -3544,6 +3577,8 @@ pub fn scrollCallback(
 
         // If we're scrolling up or down, then send a mouse event.
         if (self.isMouseReporting()) {
+            self.resetSmoothScrollLocked();
+
             for (0..@abs(y.delta)) |_| {
                 const pos = try self.rt_surface.getCursorPos();
                 self.mouseReport(switch (y.direction()) {
@@ -3565,11 +3600,123 @@ pub fn scrollCallback(
             return;
         }
 
-        if (y.delta != 0) {
-            // Modify our viewport, this requires a lock since it affects
-            // rendering. We have to switch signs here because our delta
-            // is negative down but our viewport is positive down.
+        if (yoff != 0) {
+            const t: *terminal.Terminal = self.renderer_state.terminal;
+            const cell_size: f64 = @floatFromInt(self.size.cell.height);
+
+            if (self.mouse.smooth_scroll_bias != 0) {
+                t.scrollViewport(.{ .delta = -self.mouse.smooth_scroll_bias });
+                self.mouse.smooth_scroll_bias = 0;
+            }
+
+            if (y.delta != 0) {
+                // Modify our viewport. We have to switch signs here because
+                // our delta is negative down but our viewport is positive down.
+                t.scrollViewport(.{ .delta = y.delta * -1 });
+            }
+
+            const bias: i2 = bias: {
+                if (y.smooth_offset < 0) {
+                    const bottom = t.screens.active.pages.getBottomRight(.viewport) orelse
+                        break :bias 0;
+                    if (bottom.down(1) != null) break :bias 1;
+                } else if (y.smooth_offset > 0) {
+                    const top = t.screens.active.pages.getTopLeft(.viewport);
+                    if (top.up(1) != null) break :bias -1;
+                }
+
+                break :bias 0;
+            };
+
+            if (bias != 0) {
+                t.scrollViewport(.{ .delta = bias });
+                self.mouse.smooth_scroll_bias = bias;
+            }
+
+            const smooth_offset = switch (bias) {
+                1 => cell_size + y.smooth_offset,
+                -1 => -cell_size + y.smooth_offset,
+                else => y.smooth_offset,
+            };
+
+            if (smooth_offset == 0) {
+                self.resetSmoothScrollLocked();
+            } else if (!self.setSmoothScrollLocked(smooth_offset)) {
+                self.mouse.pending_scroll_y = 0;
+            }
+        } else if (y.delta != 0) {
+            if (self.mouse.smooth_scroll_bias != 0) {
+                self.io.terminal.scrollViewport(.{ .delta = -self.mouse.smooth_scroll_bias });
+                self.mouse.smooth_scroll_bias = 0;
+            }
             self.io.terminal.scrollViewport(.{ .delta = y.delta * -1 });
+            self.resetSmoothScrollLocked();
+        }
+    }
+
+    try self.queueRender();
+}
+
+fn resetSmoothScrollLocked(self: *Surface) void {
+    if (self.mouse.smooth_scroll_bias != 0) {
+        self.io.terminal.scrollViewport(.{ .delta = -self.mouse.smooth_scroll_bias });
+        self.mouse.smooth_scroll_bias = 0;
+    }
+    self.clearSmoothScrollLocked();
+}
+
+fn clearSmoothScrollLocked(self: *Surface) void {
+    self.mouse.smooth_scroll_bias = 0;
+    self.renderer_state.smooth_scroll = .{};
+}
+
+fn resetSmoothScroll(self: *Surface) void {
+    self.renderer_state.mutex.lock();
+    defer self.renderer_state.mutex.unlock();
+    self.mouse.pending_scroll_y = 0;
+    self.resetSmoothScrollLocked();
+}
+
+fn setSmoothScrollLocked(self: *Surface, offset: f64) bool {
+    assert(offset != 0);
+
+    // Text and cell backgrounds are rasterized on the backing-pixel grid.
+    // Trackpad deltas are still accumulated at full precision, but rendering
+    // them between physical pixels causes sampling artifacts at some offsets.
+    const render_offset = @trunc(offset);
+    if (render_offset == 0) {
+        self.resetSmoothScrollLocked();
+        return true;
+    }
+
+    self.renderer_state.smooth_scroll = .{
+        .offset_y = @floatCast(render_offset),
+    };
+    return true;
+}
+
+/// Scroll to an absolute fractional row offset. This is a visual scroll
+/// position: the terminal viewport remains pinned to the integer row and
+/// the fractional part is rendered as a smooth scroll offset.
+pub fn scrollToOffsetCallback(self: *Surface, offset: f64) !void {
+    self.renderer_state.mutex.lock();
+    defer self.renderer_state.mutex.unlock();
+
+    const clamped_offset = @max(offset, 0);
+    const row: usize = @intFromFloat(@floor(clamped_offset));
+    const fraction = clamped_offset - @as(f64, @floatFromInt(row));
+
+    const t: *terminal.Terminal = self.renderer_state.terminal;
+    t.screens.active.scroll(.{ .row = row });
+    self.mouse.pending_scroll_y = 0;
+    self.clearSmoothScrollLocked();
+
+    if (fraction == 0) {
+        self.clearSmoothScrollLocked();
+    } else {
+        const cell_height: f64 = @floatFromInt(self.size.cell.height);
+        if (!self.setSmoothScrollLocked(-fraction * cell_height)) {
+            self.mouse.pending_scroll_y = 0;
         }
     }
 
@@ -3607,6 +3754,8 @@ pub fn contentScaleCallback(self: *Surface, content_scale: apprt.ContentScale) !
     if (self.config.window_padding_balance == .false) {
         self.size.padding = self.config.scaledPadding(x_dpi, y_dpi);
     }
+
+    self.resetSmoothScroll();
 
     // Force a resize event because the change in padding will affect
     // pixel-level changes to the renderer and viewport.
@@ -4941,10 +5090,19 @@ pub fn colorSchemeCallback(self: *Surface, scheme: apprt.ColorScheme) !void {
 }
 
 pub fn posToViewport(self: Surface, xpos: f64, ypos: f64) terminal.point.Coordinate {
-    // Get our grid cell
     const coord: rendererpkg.Coordinate = .{ .surface = .{ .x = xpos, .y = ypos } };
-    const grid = coord.convert(.grid, self.size).grid;
-    return .{ .x = grid.x, .y = grid.y };
+    const term = coord.convert(.terminal, self.size).terminal;
+    const grid = self.size.grid();
+    const cell_width: f64 = @floatFromInt(self.size.cell.width);
+    const cell_height: f64 = @floatFromInt(self.size.cell.height);
+    const smooth_offset_y: f64 = self.renderer_state.smooth_scroll.offset_y;
+
+    const col: rendererpkg.GridSize.Unit = @intFromFloat(@max(0, term.x) / cell_width);
+    const row: rendererpkg.GridSize.Unit = @intFromFloat(@max(0, term.y - smooth_offset_y) / cell_height);
+    return .{
+        .x = @min(col, grid.columns - 1),
+        .y = @min(row, grid.rows - 1),
+    };
 }
 
 /// Scroll to the bottom of the viewport.
@@ -4952,6 +5110,8 @@ pub fn posToViewport(self: Surface, xpos: f64, ypos: f64) terminal.point.Coordin
 /// Precondition: the render_state mutex must be held.
 fn scrollToBottom(self: *Surface) !void {
     self.io.terminal.scrollViewport(.{ .bottom = {} });
+    self.mouse.pending_scroll_y = 0;
+    self.clearSmoothScrollLocked();
     try self.queueRender();
 }
 
@@ -5396,12 +5556,14 @@ pub fn performBindingAction(self: *Surface, action: input.Binding.Action) !bool 
         },
 
         .scroll_to_top => {
+            self.resetSmoothScroll();
             self.queueIo(.{
                 .scroll_viewport = .{ .top = {} },
             }, .unlocked);
         },
 
         .scroll_to_bottom => {
+            self.resetSmoothScroll();
             self.queueIo(.{
                 .scroll_viewport = .{ .bottom = {} },
             }, .unlocked);
@@ -5413,6 +5575,8 @@ pub fn performBindingAction(self: *Surface, action: input.Binding.Action) !bool 
                 defer self.renderer_state.mutex.unlock();
                 const t: *terminal.Terminal = self.renderer_state.terminal;
                 t.screens.active.scroll(.{ .row = n });
+                self.mouse.pending_scroll_y = 0;
+                self.clearSmoothScrollLocked();
             }
 
             try self.queueRender();
@@ -5425,12 +5589,15 @@ pub fn performBindingAction(self: *Surface, action: input.Binding.Action) !bool 
                 const sel = self.io.terminal.screens.active.selection orelse return false;
                 const tl = sel.topLeft(self.io.terminal.screens.active);
                 self.io.terminal.screens.active.scroll(.{ .pin = tl });
+                self.mouse.pending_scroll_y = 0;
+                self.clearSmoothScrollLocked();
             }
 
             try self.queueRender();
         },
 
         .scroll_page_up => {
+            self.resetSmoothScroll();
             const rows: isize = @intCast(self.size.grid().rows);
             self.queueIo(.{
                 .scroll_viewport = .{ .delta = -1 * rows },
@@ -5438,6 +5605,7 @@ pub fn performBindingAction(self: *Surface, action: input.Binding.Action) !bool 
         },
 
         .scroll_page_down => {
+            self.resetSmoothScroll();
             const rows: isize = @intCast(self.size.grid().rows);
             self.queueIo(.{
                 .scroll_viewport = .{ .delta = rows },
@@ -5445,6 +5613,7 @@ pub fn performBindingAction(self: *Surface, action: input.Binding.Action) !bool 
         },
 
         .scroll_page_fractional => |fraction| {
+            self.resetSmoothScroll();
             const rows: f32 = @floatFromInt(self.size.grid().rows);
             const delta: isize = @intFromFloat(@trunc(fraction * rows));
             self.queueIo(.{
@@ -5453,6 +5622,7 @@ pub fn performBindingAction(self: *Surface, action: input.Binding.Action) !bool 
         },
 
         .scroll_page_lines => |lines| {
+            self.resetSmoothScroll();
             self.queueIo(.{
                 .scroll_viewport = .{ .delta = lines },
             }, .unlocked);

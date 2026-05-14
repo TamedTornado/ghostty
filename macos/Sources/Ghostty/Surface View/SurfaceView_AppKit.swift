@@ -595,15 +595,15 @@ extension Ghostty {
         // MARK: Local Events
 
         private func localEventHandler(_ event: NSEvent) -> NSEvent? {
-            return switch event.type {
+            switch event.type {
             case .keyUp:
-                localEventKeyUp(event)
+                return localEventKeyUp(event)
 
             case .leftMouseDown:
-                localEventLeftMouseDown(event)
+                return localEventLeftMouseDown(event)
 
             default:
-                event
+                return event
             }
         }
 
@@ -999,17 +999,9 @@ extension Ghostty {
         override func scrollWheel(with event: NSEvent) {
             guard let surfaceModel else { return }
 
-            var x = event.scrollingDeltaX
-            var y = event.scrollingDeltaY
             let precision = event.hasPreciseScrollingDeltas
-
-            if precision {
-                // We do a 2x speed multiplier. This is subjective, it "feels" better to me.
-                x *= 2
-                y *= 2
-
-                // TODO(mitchellh): do we have to scale the x/y here by window scale factor?
-            }
+            let x = event.scrollingDeltaX
+            let y = event.scrollingDeltaY
 
             let scrollEvent = Ghostty.Input.MouseScrollEvent(
                 x: x,
