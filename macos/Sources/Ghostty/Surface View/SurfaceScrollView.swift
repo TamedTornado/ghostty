@@ -24,6 +24,7 @@ class SurfaceScrollView: NSView {
     /// sending redundant actions when the user drags the scrollbar but stays
     /// on the same row.
     private var lastSentRow: Int?
+    private var lastSentOffset: Double?
 
     init(contentSize: CGSize, surfaceView: Ghostty.SurfaceView) {
         self.surfaceView = surfaceView
@@ -227,13 +228,16 @@ class SurfaceScrollView: NSView {
             let cellHeight = surfaceView.cellSize.height
             if cellHeight > 0, let scrollbar = surfaceView.scrollbar {
                 // Invert coordinate system: terminal offset is from top, AppKit position from bottom
+                let maxOffset = max(0, Double(scrollbar.total) - Double(scrollbar.len))
+                let visualOffset = min(max(scrollbar.offset, 0), maxOffset)
                 let offsetY =
-                    CGFloat(scrollbar.total - scrollbar.offset - scrollbar.len) * cellHeight
+                    CGFloat(Double(scrollbar.total) - visualOffset - Double(scrollbar.len)) * cellHeight
                 scrollView.contentView.scroll(to: CGPoint(x: 0, y: offsetY))
 
                 // Track the current row position to avoid redundant movements when we
                 // move the scrollbar.
                 lastSentRow = Int(scrollbar.offset)
+                lastSentOffset = scrollbar.offset
             }
         }
 
@@ -275,14 +279,17 @@ class SurfaceScrollView: NSView {
         let visibleRect = scrollView.contentView.documentVisibleRect
         let documentHeight = documentView.frame.height
         let scrollOffset = documentHeight - visibleRect.origin.y - visibleRect.height
-        let row = Int(scrollOffset / cellHeight)
+        let rowOffset = Double(scrollOffset / cellHeight)
+        let row = Int(rowOffset)
 
         // Only send action if the row changed to avoid action spam
-        guard row != lastSentRow else { return }
+        if let lastSentOffset, abs(lastSentOffset - rowOffset) < 0.01 {
+            return
+        }
         lastSentRow = row
+        lastSentOffset = rowOffset
 
-        // Use the keybinding action to scroll.
-        _ = surfaceView.surfaceModel?.perform(action: "scroll_to_row:\(row)")
+        surfaceView.surfaceModel?.scroll(toOffset: rowOffset)
     }
 
     /// Handles scrollbar state updates from the terminal core.

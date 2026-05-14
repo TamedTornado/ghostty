@@ -155,6 +155,12 @@ extension Ghostty {
                 event.mods.cScrollMods)
         }
 
+        /// Scroll to an absolute fractional row offset.
+        @MainActor
+        func scroll(toOffset offset: Double) {
+            ghostty_surface_scroll_to_offset(surface, offset)
+        }
+
         /// Perform a keybinding action.
         ///
         /// The action can be any valid keybind parameter. e.g. `keybind = goto_tab:4`

@@ -877,7 +877,7 @@ typedef struct {
 // terminal.Scrollbar
 typedef struct {
   uint64_t total;
-  uint64_t offset;
+  double offset;
   uint64_t len;
 } ghostty_action_scrollbar_s;
 
@@ -1140,6 +1140,7 @@ GHOSTTY_API void ghostty_surface_mouse_scroll(ghostty_surface_t,
                                                  double,
                                                  double,
                                                  ghostty_input_scroll_mods_t);
+GHOSTTY_API void ghostty_surface_scroll_to_offset(ghostty_surface_t, double);
 GHOSTTY_API void ghostty_surface_mouse_pressure(ghostty_surface_t, uint32_t, double);
 GHOSTTY_API void ghostty_surface_ime_point(ghostty_surface_t, double*, double*, double*, double*);
 GHOSTTY_API void ghostty_surface_request_close(ghostty_surface_t);
