@@ -3615,34 +3615,52 @@ pub fn scrollCallback(
                 t.scrollViewport(.{ .delta = y.delta * -1 });
             }
 
-            const bias: i2 = bias: {
+            const can_smooth = can_smooth: {
                 if (y.smooth_offset < 0) {
                     const bottom = t.screens.active.pages.getBottomRight(.viewport) orelse
-                        break :bias 0;
-                    if (bottom.down(1) != null) break :bias 1;
-                } else if (y.smooth_offset > 0) {
+                        break :can_smooth false;
+                    break :can_smooth bottom.down(1) != null;
+                }
+                if (y.smooth_offset > 0) {
                     const top = t.screens.active.pages.getTopLeft(.viewport);
-                    if (top.up(1) != null) break :bias -1;
+                    break :can_smooth top.up(1) != null;
                 }
 
-                break :bias 0;
+                break :can_smooth true;
             };
-
-            if (bias != 0) {
-                t.scrollViewport(.{ .delta = bias });
-                self.mouse.smooth_scroll_bias = bias;
-            }
-
-            const smooth_offset = switch (bias) {
-                1 => cell_size + y.smooth_offset,
-                -1 => -cell_size + y.smooth_offset,
-                else => y.smooth_offset,
-            };
-
-            if (smooth_offset == 0) {
-                self.resetSmoothScrollLocked();
-            } else if (!self.setSmoothScrollLocked(smooth_offset)) {
+            if (!can_smooth) {
                 self.mouse.pending_scroll_y = 0;
+                self.resetSmoothScrollLocked();
+            } else {
+                const bias: i2 = bias: {
+                    if (y.smooth_offset < 0) {
+                        const bottom = t.screens.active.pages.getBottomRight(.viewport) orelse
+                            break :bias 0;
+                        if (bottom.down(1) != null) break :bias 1;
+                    } else if (y.smooth_offset > 0) {
+                        const top = t.screens.active.pages.getTopLeft(.viewport);
+                        if (top.up(1) != null) break :bias -1;
+                    }
+
+                    break :bias 0;
+                };
+
+                if (bias != 0) {
+                    t.scrollViewport(.{ .delta = bias });
+                    self.mouse.smooth_scroll_bias = bias;
+                }
+
+                const smooth_offset = switch (bias) {
+                    1 => cell_size + y.smooth_offset,
+                    -1 => -cell_size + y.smooth_offset,
+                    else => y.smooth_offset,
+                };
+
+                if (smooth_offset == 0) {
+                    self.resetSmoothScrollLocked();
+                } else if (!self.setSmoothScrollLocked(smooth_offset)) {
+                    self.mouse.pending_scroll_y = 0;
+                }
             }
         } else if (y.delta != 0) {
             if (self.mouse.smooth_scroll_bias != 0) {
