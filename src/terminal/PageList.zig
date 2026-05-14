@@ -2943,6 +2943,10 @@ pub const Scrollbar = struct {
     /// visible row.
     offset: usize,
 
+    /// Fractional row offset used for visual-only scroll positions. The
+    /// terminal viewport itself is still always pinned to an integer row.
+    offset_fraction: f64 = 0,
+
     /// The length of the visible area. This is including the offset row.
     len: usize,
 
@@ -2956,14 +2960,14 @@ pub const Scrollbar = struct {
     // Sync with: ghostty_action_scrollbar_s
     pub const C = extern struct {
         total: u64,
-        offset: u64,
+        offset: f64,
         len: u64,
     };
 
     pub fn cval(self: Scrollbar) C {
         return .{
             .total = @intCast(self.total),
-            .offset = @intCast(self.offset),
+            .offset = @as(f64, @floatFromInt(self.offset)) + self.offset_fraction,
             .len = @intCast(self.len),
         };
     }
@@ -2972,6 +2976,7 @@ pub const Scrollbar = struct {
     pub fn eql(self: Scrollbar, other: Scrollbar) bool {
         return self.total == other.total and
             self.offset == other.offset and
+            self.offset_fraction == other.offset_fraction and
             self.len == other.len;
     }
 };

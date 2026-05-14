@@ -30,6 +30,11 @@ preedit: ?Preedit = null,
 /// need about the mouse.
 mouse: Mouse = .{},
 
+/// Visual-only smooth scroll state. The terminal viewport remains row-based;
+/// this lets renderers shift the current viewport by a fractional row and,
+/// when needed, render one extra row at the leading edge.
+smooth_scroll: terminalpkg.RenderState.SmoothScroll = .{},
+
 pub const Mouse = struct {
     /// The point on the viewport where the mouse currently is. We use
     /// viewport points to avoid the complexity of mapping the mouse to

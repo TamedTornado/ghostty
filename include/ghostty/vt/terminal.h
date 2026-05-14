@@ -243,7 +243,7 @@ typedef struct {
   uint64_t total;
 
   /** Offset into the total area that the viewport is at. */
-  uint64_t offset;
+  double offset;
 
   /** Length of the visible area in rows. */
   uint64_t len;
