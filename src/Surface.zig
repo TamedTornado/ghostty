@@ -3615,13 +3615,18 @@ pub fn scrollCallback(
                 t.scrollViewport(.{ .delta = y.delta * -1 });
             }
 
+            const smooth_offset = if (self.smoothViewportScrollAllowedLocked())
+                y.smooth_offset
+            else
+                0;
+
             const can_smooth = can_smooth: {
-                if (y.smooth_offset < 0) {
+                if (smooth_offset < 0) {
                     const bottom = t.screens.active.pages.getBottomRight(.viewport) orelse
                         break :can_smooth false;
                     break :can_smooth bottom.down(1) != null;
                 }
-                if (y.smooth_offset > 0) {
+                if (smooth_offset > 0) {
                     const top = t.screens.active.pages.getTopLeft(.viewport);
                     break :can_smooth top.up(1) != null;
                 }
@@ -3633,11 +3638,11 @@ pub fn scrollCallback(
                 self.resetSmoothScrollLocked();
             } else {
                 const bias: i2 = bias: {
-                    if (y.smooth_offset < 0) {
+                    if (smooth_offset < 0) {
                         const bottom = t.screens.active.pages.getBottomRight(.viewport) orelse
                             break :bias 0;
                         if (bottom.down(1) != null) break :bias 1;
-                    } else if (y.smooth_offset > 0) {
+                    } else if (smooth_offset > 0) {
                         const top = t.screens.active.pages.getTopLeft(.viewport);
                         if (top.up(1) != null) break :bias -1;
                     }
@@ -3650,15 +3655,15 @@ pub fn scrollCallback(
                     self.mouse.smooth_scroll_bias = bias;
                 }
 
-                const smooth_offset = switch (bias) {
-                    1 => cell_size + y.smooth_offset,
-                    -1 => -cell_size + y.smooth_offset,
-                    else => y.smooth_offset,
+                const visual_smooth_offset = switch (bias) {
+                    1 => cell_size + smooth_offset,
+                    -1 => -cell_size + smooth_offset,
+                    else => smooth_offset,
                 };
 
-                if (smooth_offset == 0) {
+                if (visual_smooth_offset == 0) {
                     self.resetSmoothScrollLocked();
-                } else if (!self.setSmoothScrollLocked(smooth_offset)) {
+                } else if (!self.setSmoothScrollLocked(visual_smooth_offset)) {
                     self.mouse.pending_scroll_y = 0;
                 }
             }
@@ -3686,6 +3691,14 @@ fn resetSmoothScrollLocked(self: *Surface) void {
 fn clearSmoothScrollLocked(self: *Surface) void {
     self.mouse.smooth_scroll_bias = 0;
     self.renderer_state.smooth_scroll = .{};
+}
+
+fn smoothViewportScrollAllowedLocked(self: *const Surface) bool {
+    // Smooth viewport scrolling is a visual affordance for primary scrollback.
+    // Alternate-screen applications either receive scroll input directly or
+    // deliberately opt out of alternate-scroll handling, so fractional viewport
+    // offsets can expose partial terminal rows.
+    return self.io.terminal.screens.active_key == .primary;
 }
 
 fn resetSmoothScroll(self: *Surface) void {
@@ -3722,9 +3735,13 @@ pub fn scrollToOffsetCallback(self: *Surface, offset: f64) !void {
 
     const clamped_offset = @max(offset, 0);
     const row: usize = @intFromFloat(@floor(clamped_offset));
-    const fraction = clamped_offset - @as(f64, @floatFromInt(row));
 
     const t: *terminal.Terminal = self.renderer_state.terminal;
+    const fraction = if (self.smoothViewportScrollAllowedLocked())
+        clamped_offset - @as(f64, @floatFromInt(row))
+    else
+        0;
+
     t.screens.active.scroll(.{ .row = row });
     self.mouse.pending_scroll_y = 0;
     self.clearSmoothScrollLocked();
