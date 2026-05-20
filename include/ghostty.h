@@ -1140,6 +1140,7 @@ GHOSTTY_API void ghostty_surface_mouse_scroll(ghostty_surface_t,
                                                  double,
                                                  double,
                                                  ghostty_input_scroll_mods_t);
+GHOSTTY_API bool ghostty_surface_mouse_scroll_is_terminal_input(ghostty_surface_t);
 GHOSTTY_API void ghostty_surface_scroll_to_offset(ghostty_surface_t, double);
 GHOSTTY_API void ghostty_surface_set_smooth_scroll_enabled(ghostty_surface_t, bool);
 GHOSTTY_API void ghostty_surface_mouse_pressure(ghostty_surface_t, uint32_t, double);

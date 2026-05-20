@@ -1886,6 +1886,10 @@ pub const CAPI = struct {
         );
     }
 
+    export fn ghostty_surface_mouse_scroll_is_terminal_input(surface: *Surface) bool {
+        return surface.core_surface.mouseScrollIsTerminalInput();
+    }
+
     export fn ghostty_surface_scroll_to_offset(
         surface: *Surface,
         offset: f64,

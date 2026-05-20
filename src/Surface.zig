@@ -3706,6 +3706,14 @@ fn smoothViewportScrollAllowedLocked(self: *const Surface) bool {
         self.io.terminal.screens.active_key == .primary;
 }
 
+pub fn mouseScrollIsTerminalInput(self: *const Surface) bool {
+    if (self.isMouseReporting()) return true;
+
+    return self.io.terminal.screens.active_key == .alternate and
+        self.io.terminal.flags.mouse_event == .none and
+        self.io.terminal.modes.get(.mouse_alternate_scroll);
+}
+
 pub fn setSmoothViewportScrollEnabledCallback(self: *Surface, enabled: bool) !void {
     var should_render = false;
 
@@ -3747,37 +3755,74 @@ fn setSmoothScrollLocked(self: *Surface, offset: f64) bool {
         return true;
     }
 
+    const cell_height: f64 = @floatFromInt(self.size.cell.height);
+    const guard_rows_count: usize = if (cell_height > 0)
+        @intFromFloat(@ceil(@abs(render_offset) / cell_height))
+    else
+        1;
+    const guard_rows = std.math.cast(
+        terminal.size.CellCountInt,
+        guard_rows_count,
+    ) orelse std.math.maxInt(terminal.size.CellCountInt);
+
     self.renderer_state.smooth_scroll = .{
         .offset_y = @floatCast(render_offset),
+        .before = guard_rows,
+        .after = guard_rows,
     };
     return true;
 }
 
+const ScrollOffset = struct {
+    row: usize = 0,
+    smooth_rows: f64 = 0,
+};
+
+fn scrollOffsetToVisual(offset: f64, max_offset: usize) ScrollOffset {
+    const max_offset_float: f64 = @floatFromInt(max_offset);
+    const clamped_offset = @min(@max(offset, 0), max_offset_float);
+    const row_float = @floor(clamped_offset);
+
+    return .{
+        .row = @intFromFloat(row_float),
+        .smooth_rows = offset - row_float,
+    };
+}
+
+test "scrollOffsetToVisual preserves out of range visual offsets" {
+    const testing = std.testing;
+
+    try testing.expectEqual(ScrollOffset{ .row = 10, .smooth_rows = 0.25 }, scrollOffsetToVisual(10.25, 20));
+    try testing.expectEqual(ScrollOffset{ .row = 0, .smooth_rows = -0.4 }, scrollOffsetToVisual(-0.4, 20));
+    try testing.expectEqual(ScrollOffset{ .row = 20, .smooth_rows = 0.5 }, scrollOffsetToVisual(20.5, 20));
+    try testing.expectEqual(ScrollOffset{ .row = 20, .smooth_rows = 4 }, scrollOffsetToVisual(24, 20));
+    try testing.expectEqual(ScrollOffset{ .row = 0, .smooth_rows = -0.4 }, scrollOffsetToVisual(-0.4, 0));
+}
+
 /// Scroll to an absolute fractional row offset. This is a visual scroll
 /// position: the terminal viewport remains pinned to the integer row and
-/// the fractional part is rendered as a smooth scroll offset.
+/// the fractional part is rendered as a smooth scroll offset. Smooth primary
+/// surfaces may pass a small out-of-range offset for visual-only rubber-band
+/// overscroll; the terminal viewport remains clamped to real scrollback rows.
 pub fn scrollToOffsetCallback(self: *Surface, offset: f64) !void {
     self.renderer_state.mutex.lock();
     defer self.renderer_state.mutex.unlock();
 
-    const clamped_offset = @max(offset, 0);
-    const row: usize = @intFromFloat(@floor(clamped_offset));
-
     const t: *terminal.Terminal = self.renderer_state.terminal;
-    const fraction = if (self.smoothViewportScrollAllowedLocked())
-        clamped_offset - @as(f64, @floatFromInt(row))
+    const scrollbar = t.screens.active.pages.scrollbar();
+    const max_offset = if (scrollbar.total > scrollbar.len)
+        scrollbar.total - scrollbar.len
     else
         0;
+    const visual = scrollOffsetToVisual(offset, max_offset);
 
-    t.screens.active.scroll(.{ .row = row });
+    t.screens.active.scroll(.{ .row = visual.row });
     self.mouse.pending_scroll_y = 0;
     self.clearSmoothScrollLocked();
 
-    if (fraction == 0) {
-        self.clearSmoothScrollLocked();
-    } else {
+    if (visual.smooth_rows != 0) {
         const cell_height: f64 = @floatFromInt(self.size.cell.height);
-        if (!self.setSmoothScrollLocked(-fraction * cell_height)) {
+        if (!self.setSmoothScrollLocked(-visual.smooth_rows * cell_height)) {
             self.mouse.pending_scroll_y = 0;
         }
     }

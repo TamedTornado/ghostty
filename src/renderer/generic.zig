@@ -45,12 +45,13 @@ const log = std.log.scoped(.generic_renderer);
 
 fn smoothScrollRenderOptions(
     smooth_scroll: terminal.RenderState.SmoothScroll,
+    include_guards: bool,
 ) terminal.RenderState.SmoothScroll {
     return if (smooth_scroll.offset_y != 0)
         .{
             .offset_y = smooth_scroll.offset_y,
-            .before = 2,
-            .after = 2,
+            .before = if (include_guards) smooth_scroll.before else 0,
+            .after = if (include_guards) smooth_scroll.after else 0,
         }
     else
         .{};
@@ -59,15 +60,19 @@ fn smoothScrollRenderOptions(
 test "smooth scroll render options only guard active visual offsets" {
     try std.testing.expectEqual(
         terminal.RenderState.SmoothScroll{},
-        smoothScrollRenderOptions(.{}),
+        smoothScrollRenderOptions(.{}, true),
     );
     try std.testing.expectEqual(
         terminal.RenderState.SmoothScroll{},
-        smoothScrollRenderOptions(.{ .offset_y = 0, .before = 2, .after = 2 }),
+        smoothScrollRenderOptions(.{ .offset_y = 0, .before = 2, .after = 2 }, true),
     );
     try std.testing.expectEqual(
         terminal.RenderState.SmoothScroll{ .offset_y = 4, .before = 2, .after = 2 },
-        smoothScrollRenderOptions(.{ .offset_y = 4 }),
+        smoothScrollRenderOptions(.{ .offset_y = 4, .before = 2, .after = 2 }, true),
+    );
+    try std.testing.expectEqual(
+        terminal.RenderState.SmoothScroll{ .offset_y = 4 },
+        smoothScrollRenderOptions(.{ .offset_y = 4, .before = 2, .after = 2 }, false),
     );
 }
 
@@ -1232,10 +1237,14 @@ pub fn Renderer(comptime GraphicsAPI: type) type {
                 }
 
                 // Update our terminal state. Only request guard rows while a
-                // non-zero visual offset is active; otherwise the renderer
-                // must stay on the traditional row-aligned path.
+                // non-zero visual offset is active on primary scrollback;
+                // alternate-screen apps keep their exact grid dimensions.
+                const smooth_scroll_guards = state.terminal.screens.active_key != .alternate;
                 try self.terminal_state.updateWithOptions(self.alloc, state.terminal, .{
-                    .smooth_scroll = smoothScrollRenderOptions(state.smooth_scroll),
+                    .smooth_scroll = smoothScrollRenderOptions(
+                        state.smooth_scroll,
+                        smooth_scroll_guards,
+                    ),
                 });
 
                 // If our terminal state is dirty at all we need to redo

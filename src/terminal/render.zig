@@ -315,8 +315,8 @@ pub const RenderState = struct {
 
             break :smooth_scroll .{
                 .offset_y = opts.smooth_scroll.offset_y,
-                .before = if (opts.smooth_scroll.before == 0) 1 else opts.smooth_scroll.before,
-                .after = if (opts.smooth_scroll.after == 0) 1 else opts.smooth_scroll.after,
+                .before = opts.smooth_scroll.before,
+                .after = opts.smooth_scroll.after,
             };
         };
         const rows: size.CellCountInt =
@@ -1049,6 +1049,13 @@ test "smooth scroll update includes extra rows" {
     try testing.expectEqual(@as(size.CellCountInt, 7), state.rows);
     try testing.expectEqual(@as(size.CellCountInt, 2), state.smooth_scroll.before);
     try testing.expectEqual(@as(size.CellCountInt, 2), state.smooth_scroll.after);
+
+    try state.updateWithOptions(alloc, &t, .{
+        .smooth_scroll = .{ .offset_y = 4 },
+    });
+    try testing.expectEqual(@as(size.CellCountInt, 3), state.rows);
+    try testing.expectEqual(@as(size.CellCountInt, 0), state.smooth_scroll.before);
+    try testing.expectEqual(@as(size.CellCountInt, 0), state.smooth_scroll.after);
 
     t.scrollViewport(.{ .delta = -1 });
     try state.updateWithOptions(alloc, &t, .{
