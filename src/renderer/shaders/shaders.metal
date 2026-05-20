@@ -683,6 +683,14 @@ fragment float4 cell_text_fragment(
   texture2d<float> textureColor [[texture(1)]],
   constant Uniforms& uniforms [[buffer(1)]]
 ) {
+  if (uniforms.smooth_scroll_offset.y != 0.0f) {
+    float top = uniforms.grid_padding.x;
+    float bottom = uniforms.screen_size.y - uniforms.grid_padding.z;
+    if (in.position.y < top || in.position.y >= bottom) {
+      discard_fragment();
+    }
+  }
+
   constexpr sampler textureSampler(
     coord::pixel,
     address::clamp_to_edge,

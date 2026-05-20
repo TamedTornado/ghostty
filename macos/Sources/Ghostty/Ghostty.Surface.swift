@@ -161,6 +161,12 @@ extension Ghostty {
             ghostty_surface_scroll_to_offset(surface, offset)
         }
 
+        /// Enable or disable visual fractional row scrolling for this surface.
+        @MainActor
+        func setSmoothScrollingEnabled(_ enabled: Bool) {
+            ghostty_surface_set_smooth_scroll_enabled(surface, enabled)
+        }
+
         /// Perform a keybinding action.
         ///
         /// The action can be any valid keybind parameter. e.g. `keybind = goto_tab:4`

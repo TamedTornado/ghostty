@@ -1895,6 +1895,15 @@ pub const CAPI = struct {
         };
     }
 
+    export fn ghostty_surface_set_smooth_scroll_enabled(
+        surface: *Surface,
+        enabled: bool,
+    ) void {
+        surface.core_surface.setSmoothViewportScrollEnabledCallback(enabled) catch |err| {
+            log.err("error setting smooth scroll enabled enabled={} err={}", .{ enabled, err });
+        };
+    }
+
     export fn ghostty_surface_mouse_pressure(
         surface: *Surface,
         stage_raw: u32,

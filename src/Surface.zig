@@ -97,6 +97,10 @@ renderer_thr: std.Thread,
 /// Mouse state.
 mouse: Mouse,
 
+/// Enables visual fractional viewport scroll offsets for embedders that want
+/// smooth scrolling between terminal rows.
+smooth_viewport_scroll_enabled: bool = true,
+
 /// Keyboard input state.
 keyboard: Keyboard,
 
@@ -3698,7 +3702,30 @@ fn smoothViewportScrollAllowedLocked(self: *const Surface) bool {
     // Alternate-screen applications either receive scroll input directly or
     // deliberately opt out of alternate-scroll handling, so fractional viewport
     // offsets can expose partial terminal rows.
-    return self.io.terminal.screens.active_key == .primary;
+    return self.smooth_viewport_scroll_enabled and
+        self.io.terminal.screens.active_key == .primary;
+}
+
+pub fn setSmoothViewportScrollEnabledCallback(self: *Surface, enabled: bool) !void {
+    var should_render = false;
+
+    {
+        self.renderer_state.mutex.lock();
+        defer self.renderer_state.mutex.unlock();
+
+        if (self.smooth_viewport_scroll_enabled != enabled) {
+            self.smooth_viewport_scroll_enabled = enabled;
+            should_render = true;
+        }
+
+        if (!enabled) {
+            self.mouse.pending_scroll_y = 0;
+            self.resetSmoothScrollLocked();
+            should_render = true;
+        }
+    }
+
+    if (should_render) try self.queueRender();
 }
 
 fn resetSmoothScroll(self: *Surface) void {

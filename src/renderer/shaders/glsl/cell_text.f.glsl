@@ -1,5 +1,8 @@
 #include "common.glsl"
 
+// Position the origin to the upper left.
+layout(origin_upper_left) in vec4 gl_FragCoord;
+
 layout(binding = 0) uniform sampler2DRect atlas_grayscale;
 layout(binding = 1) uniform sampler2DRect atlas_color;
 
@@ -20,6 +23,14 @@ layout(location = 0) out vec4 out_FragColor;
 void main() {
     bool use_linear_blending = (bools & USE_LINEAR_BLENDING) != 0;
     bool use_linear_correction = (bools & USE_LINEAR_CORRECTION) != 0;
+
+    if (smooth_scroll_offset.y != 0.0) {
+        float top = grid_padding.x;
+        float bottom = screen_size.y - grid_padding.z;
+        if (gl_FragCoord.y < top || gl_FragCoord.y >= bottom) {
+            discard;
+        }
+    }
 
     switch (in_data.atlas) {
         default:
