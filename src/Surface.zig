@@ -3749,7 +3749,7 @@ fn setSmoothScrollLocked(self: *Surface, offset: f64) bool {
     // Text and cell backgrounds are rasterized on the backing-pixel grid.
     // Trackpad deltas are still accumulated at full precision, but rendering
     // them between physical pixels causes sampling artifacts at some offsets.
-    const render_offset = @trunc(offset);
+    const render_offset = smoothScrollRenderOffset(offset);
     if (render_offset == 0) {
         self.resetSmoothScrollLocked();
         return true;
@@ -3771,6 +3771,10 @@ fn setSmoothScrollLocked(self: *Surface, offset: f64) bool {
         .after = guard_rows,
     };
     return true;
+}
+
+fn smoothScrollRenderOffset(offset: f64) f64 {
+    return @round(offset);
 }
 
 const ScrollOffset = struct {
@@ -3797,6 +3801,15 @@ test "scrollOffsetToVisual preserves out of range visual offsets" {
     try testing.expectEqual(ScrollOffset{ .row = 20, .smooth_rows = 0.5 }, scrollOffsetToVisual(20.5, 20));
     try testing.expectEqual(ScrollOffset{ .row = 20, .smooth_rows = 4 }, scrollOffsetToVisual(24, 20));
     try testing.expectEqual(ScrollOffset{ .row = 0, .smooth_rows = -0.4 }, scrollOffsetToVisual(-0.4, 0));
+}
+
+test "smoothScrollRenderOffset rounds to nearest backing pixel" {
+    const testing = std.testing;
+
+    try testing.expectEqual(@as(f64, 1), smoothScrollRenderOffset(0.51));
+    try testing.expectEqual(@as(f64, -1), smoothScrollRenderOffset(-0.51));
+    try testing.expectEqual(@as(f64, 0), smoothScrollRenderOffset(0.49));
+    try testing.expectEqual(@as(f64, 0), smoothScrollRenderOffset(-0.49));
 }
 
 /// Scroll to an absolute fractional row offset. This is a visual scroll
