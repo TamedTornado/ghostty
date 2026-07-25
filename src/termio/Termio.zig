@@ -73,6 +73,33 @@ last_cursor_reset: ?std.Io.Timestamp = null,
 /// to keep track of any state or if its already been freed.
 thread_enter_state: ?*ThreadEnterState = null,
 
+/// ZENTTY FORK: raw pty output tee, used by the mobile companion bridge to
+/// mirror a surface to a phone. Null (the default) when nobody is mirroring,
+/// in which case the only cost on the read path is a null check.
+///
+/// Installed and removed under `renderer_state.mutex`, which the read thread
+/// holds for the whole of `processOutputLocked` -- so once a remove returns,
+/// no callback is in flight and none can start.
+pty_tee: ?PtyTee = null,
+
+/// ZENTTY FORK: absolute offset of the next pty byte to arrive, counted from
+/// surface creation. Advances by every byte we process WHETHER OR NOT a tee is
+/// installed, so offsets stay meaningful across install/uninstall cycles and a
+/// consumer can detect a gap rather than silently desyncing.
+pty_seq: u64 = 0,
+
+/// ZENTTY FORK: see `pty_tee`. The callback receives the exact bytes the child
+/// wrote, after they have been applied to the terminal.
+pub const PtyTee = struct {
+    callback: *const fn (
+        userdata: ?*anyopaque,
+        seq: u64,
+        data: [*]const u8,
+        len: usize,
+    ) callconv(.c) void,
+    userdata: ?*anyopaque,
+};
+
 /// The state we need to keep around only until we enter the IO
 /// thread. Then we can throw it all away.
 const ThreadEnterState = struct {
@@ -700,6 +727,25 @@ fn processOutputLocked(self: *Termio, buf: []const u8) void {
     if (self.terminal_stream.handler.termio_messaged) {
         self.terminal_stream.handler.termio_messaged = false;
         self.mailbox.notify();
+    }
+
+    // ZENTTY FORK: hand the raw bytes to the companion tee LAST, after they
+    // have been applied to the terminal. That ordering is what lets a snapshot
+    // taken under this same mutex be exactly consistent with `pty_seq`: every
+    // byte below the reported offset is already baked into the screen.
+    //
+    // We advance the counter unconditionally so a consumer that attaches later
+    // still sees absolute, gap-detectable offsets.
+    //
+    // The callback runs HERE -- on the io-reader thread, with the renderer
+    // state mutex held. Time spent in it back-pressures the child process and
+    // stalls the renderer, and re-entering libghostty from it deadlocks on a
+    // non-reentrant mutex. It must copy and enqueue, nothing more. The full
+    // contract is documented on ghostty_surface_pty_tee_cb in include/ghostty.h.
+    const tee_seq = self.pty_seq;
+    self.pty_seq += buf.len;
+    if (self.pty_tee) |tee| {
+        tee.callback(tee.userdata, tee_seq, buf.ptr, buf.len);
     }
 }
 

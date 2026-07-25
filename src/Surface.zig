@@ -3639,6 +3639,15 @@ pub fn scrollCallback(
     try self.queueRender();
 }
 
+/// ZENTTY FORK: install or remove the raw pty output tee used by the mobile
+/// companion. Removal synchronizes with the IO thread, so the caller may
+/// release the callback userdata when this returns.
+pub fn setPtyTee(self: *Surface, tee: ?termio.Termio.PtyTee) void {
+    self.renderer_state.mutex.lockUncancelable(global.io());
+    defer self.renderer_state.mutex.unlock(global.io());
+    self.io.pty_tee = tee;
+}
+
 /// This is called when the content scale of the surface changes. The surface
 /// can then update any DPI-sensitive state.
 pub fn contentScaleCallback(self: *Surface, content_scale: apprt.ContentScale) !void {

@@ -1872,6 +1872,19 @@ pub const CAPI = struct {
         );
     }
 
+    /// ZENTTY FORK: install or remove the raw pty output tee. See the public C
+    /// header for the callback's threading and lifetime contract.
+    export fn ghostty_surface_set_pty_tee(
+        surface: *Surface,
+        cb: ?*const fn (?*anyopaque, u64, [*]const u8, usize) callconv(.c) void,
+        userdata: ?*anyopaque,
+    ) void {
+        surface.core_surface.setPtyTee(if (cb) |callback| .{
+            .callback = callback,
+            .userdata = userdata,
+        } else null);
+    }
+
     export fn ghostty_surface_mouse_pressure(
         surface: *Surface,
         stage_raw: u32,

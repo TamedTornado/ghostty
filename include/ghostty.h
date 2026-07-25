@@ -1149,6 +1149,26 @@ GHOSTTY_API void ghostty_surface_mouse_scroll(ghostty_surface_t,
                                                  double,
                                                  double,
                                                  ghostty_input_scroll_mods_t);
+/**
+ * ZENTTY FORK. Raw pty output tee. Delivers exact child-process bytes after
+ * they have been applied to terminal state. The callback runs synchronously
+ * on the surface IO thread while the renderer-state mutex is held: copy and
+ * enqueue only; do not block, perform I/O, or call ghostty APIs. `data` is
+ * valid only during the call. `seq` is an absolute, gap-detectable byte offset.
+ */
+typedef void (*ghostty_surface_pty_tee_cb)(void* userdata,
+                                           uint64_t seq,
+                                           const uint8_t* data,
+                                           uintptr_t len);
+
+/**
+ * ZENTTY FORK. Install, replace, or remove the raw pty output tee. Pass a null
+ * callback to remove it. After removal returns, no callback remains in flight,
+ * so the caller may release `userdata`. Do not call this from the callback.
+ */
+GHOSTTY_API void ghostty_surface_set_pty_tee(ghostty_surface_t,
+                                             ghostty_surface_pty_tee_cb /* nullable */,
+                                             void* userdata);
 GHOSTTY_API void ghostty_surface_mouse_pressure(ghostty_surface_t, uint32_t, double);
 GHOSTTY_API void ghostty_surface_ime_point(ghostty_surface_t, double*, double*, double*, double*);
 GHOSTTY_API void ghostty_surface_request_close(ghostty_surface_t);
