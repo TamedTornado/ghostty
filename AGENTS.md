@@ -47,6 +47,14 @@ when a repair spans both repositories.
 This section is downstream-only. Keep it and any Zentty-specific build glue
 out of patches proposed to upstream Ghostty.
 
+For this branch, unit tests are not sufficient qualification. Preserve the
+unchanged Ghostty regression gate and exercise the real alternate GTK host
+under Wayland and X11, including multiple surfaces, PTY input/output, focus,
+resize, child exit, teardown, repeated lifecycle stress, and leak checks.
+Record exact commands and result receipts in the canonical field report. Mark
+untested compositor, IME, scaling, clipboard, or GPU environments as explicit
+gaps rather than treating them as passed.
+
 ## Issue and PR Guidelines
 
 - Never create an issue.
