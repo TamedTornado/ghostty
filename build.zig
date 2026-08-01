@@ -89,6 +89,10 @@ pub fn build(b: *std.Build) !void {
         "gtk-embed-interaction",
         "Run GTK embedding input, clipboard, focus, and resize checks",
     );
+    const gtk_embed_lib_step = b.step(
+        "gtk-embed-lib",
+        "Build the experimental GTK embedding library",
+    );
     const gtk_embed_spike_valgrind_step = b.step(
         "gtk-embed-spike-valgrind",
         "Run the alternate GTK embedding host under Valgrind",
@@ -109,6 +113,30 @@ pub fn build(b: *std.Build) !void {
     // terminal surface can be embedded without GhosttyApplication. Keep this
     // isolated from the normal build until the experiment yields a stable API.
     if (config.app_runtime == .gtk) {
+        const gtk_embed_lib = b.addLibrary(.{
+            .name = "ghostty-gtk-embed",
+            .linkage = .dynamic,
+            .root_module = b.createModule(.{
+                .root_source_file = b.path("src/gtk_embed_lib.zig"),
+                .target = config.target,
+                .optimize = config.optimize,
+            }),
+            .use_llvm = true,
+        });
+        if (config.target.result.os.tag == .linux) {
+            // Keep private dynamic dependencies discoverable when a host
+            // installs them beside the embedding library.
+            gtk_embed_lib.root_module.addRPathSpecial("$ORIGIN");
+        }
+        _ = try deps.add(gtk_embed_lib);
+        const install_gtk_embed_lib = b.addInstallArtifact(gtk_embed_lib, .{});
+        const install_gtk_embed_header = b.addInstallHeaderFile(
+            b.path("include/ghostty/gtk.h"),
+            "ghostty/gtk.h",
+        );
+        gtk_embed_lib_step.dependOn(&install_gtk_embed_lib.step);
+        gtk_embed_lib_step.dependOn(&install_gtk_embed_header.step);
+
         const gtk_embed_spike = b.addExecutable(.{
             .name = "ghostty-gtk-embed-spike",
             .root_module = b.createModule(.{
@@ -173,6 +201,10 @@ pub fn build(b: *std.Build) !void {
         );
         try gtk_embed_interaction_step.addError(
             "gtk-embed-interaction requires the GTK application runtime",
+            .{},
+        );
+        try gtk_embed_lib_step.addError(
+            "gtk-embed-lib requires the GTK application runtime",
             .{},
         );
         try gtk_embed_spike_valgrind_step.addError(

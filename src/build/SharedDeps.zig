@@ -651,8 +651,10 @@ pub fn add(
         }
     }
 
-    // If we're building an exe then we have additional dependencies.
-    if (step.kind != .lib) {
+    // Standalone executables and GTK embedding libraries need the native
+    // application-runtime dependencies. Other libraries use the embedded
+    // runtime and intentionally omit them.
+    if (step.kind != .lib or self.config.app_runtime == .gtk) {
         // We always statically compile glad
         step.root_module.addIncludePath(b.path("vendor/glad/include/"));
         step.root_module.addCSourceFile(.{

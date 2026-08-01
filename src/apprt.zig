@@ -45,7 +45,10 @@ pub const runtime = switch (build_config.artifact) {
         .none => none,
         .gtk => gtk,
     },
-    .lib => embedded,
+    .lib => switch (build_config.app_runtime) {
+        .none => embedded,
+        .gtk => gtk,
+    },
     .wasm_module => browser,
 };
 
