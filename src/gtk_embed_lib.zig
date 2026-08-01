@@ -1,0 +1,114 @@
+//! Experimental GTK embedding boundary for non-Ghostty applications.
+//!
+//! The C exports intentionally keep Ghostty and Zig implementation details
+//! opaque. The host owns the GTK application and widgets; this runtime owns
+//! the Ghostty core that backs each returned GhosttySurface.
+
+const std = @import("std");
+const apprt = @import("apprt.zig");
+const CoreApp = @import("App.zig");
+const Surface = @import("apprt/gtk/class/surface.zig").Surface;
+const state = &@import("global.zig").state;
+const xev = @import("global.zig").xev;
+
+const AsyncBackend = enum(c_int) {
+    default = 0,
+    epoll = 1,
+    io_uring = 2,
+};
+
+pub const Runtime = struct {
+    core_app: *CoreApp,
+    apprt_app: apprt.App,
+
+    pub fn create(async_backend: AsyncBackend) !*Runtime {
+        try state.init();
+        errdefer state.deinit();
+
+        const backend_available = switch (async_backend) {
+            .default => true,
+            .epoll => if (comptime xev.dynamic) xev.prefer(.epoll) else false,
+            .io_uring => if (comptime xev.dynamic) xev.prefer(.io_uring) else false,
+        };
+        if (!backend_available) return error.AsyncBackendUnavailable;
+
+        const self = try std.heap.c_allocator.create(Runtime);
+        errdefer std.heap.c_allocator.destroy(self);
+
+        const core_app = try CoreApp.create(state.alloc);
+        errdefer core_app.destroy();
+
+        self.* = .{
+            .core_app = core_app,
+            .apprt_app = undefined,
+        };
+        try self.apprt_app.init(core_app, .{});
+        return self;
+    }
+
+    pub fn destroy(self: *Runtime) void {
+        self.apprt_app.terminate();
+        self.core_app.destroy();
+        state.deinit();
+        std.heap.c_allocator.destroy(self);
+    }
+
+    pub fn tick(self: *Runtime) !void {
+        try self.core_app.tick(&self.apprt_app);
+    }
+
+    pub fn newSurface(
+        self: *Runtime,
+        command: ?[:0]const u8,
+        title: ?[:0]const u8,
+    ) *Surface {
+        return Surface.newWithApplication(self.apprt_app.app, .{
+            .command = if (command) |value| .{ .shell = value } else null,
+            .title = title,
+        });
+    }
+};
+
+export fn ghostty_gtk_embed_runtime_new() ?*Runtime {
+    return createRuntime(.default);
+}
+
+export fn ghostty_gtk_embed_runtime_new_with_async_backend(
+    backend: c_int,
+) ?*Runtime {
+    const value = std.meta.intToEnum(AsyncBackend, backend) catch return null;
+    return createRuntime(value);
+}
+
+fn createRuntime(async_backend: AsyncBackend) ?*Runtime {
+    return Runtime.create(async_backend) catch |err| {
+        std.log.err("failed to initialize GTK embedding runtime err={}", .{err});
+        return null;
+    };
+}
+
+export fn ghostty_gtk_embed_runtime_free(runtime: ?*Runtime) void {
+    const value = runtime orelse return;
+    value.destroy();
+}
+
+export fn ghostty_gtk_embed_runtime_tick(runtime: ?*Runtime) bool {
+    const value = runtime orelse return false;
+    value.tick() catch |err| {
+        std.log.err("GTK embedding runtime tick failed err={}", .{err});
+        return false;
+    };
+    return true;
+}
+
+export fn ghostty_gtk_embed_surface_new(
+    runtime: ?*Runtime,
+    command: ?[*:0]const u8,
+    title: ?[*:0]const u8,
+) ?*anyopaque {
+    const value = runtime orelse return null;
+    return @ptrCast(value.newSurface(
+        if (command) |v| std.mem.span(v) else null,
+        if (title) |v| std.mem.span(v) else null,
+    ));
+}
