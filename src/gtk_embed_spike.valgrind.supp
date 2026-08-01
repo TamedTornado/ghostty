@@ -1,0 +1,71 @@
+# GTK and its platform libraries intentionally retain process-global state.
+# Keep these narrow and local to the embedding integration test so that a
+# Ghostty-owned allocation remains an unsuppressed test failure.
+
+{
+   GTK dlopen dependency metadata
+   Memcheck:Leak
+   match-leak-kinds: definite,indirect
+   fun:malloc
+   ...
+   fun:_dl_map_object_deps
+   ...
+   fun:dlopen@@GLIBC_*
+}
+
+{
+   Fontconfig Expat parse scratch storage
+   Memcheck:Leak
+   match-leak-kinds: indirect
+   fun:calloc
+   ...
+   fun:XML_ParseBuffer
+   ...
+   obj:*libfontconfig.so*
+}
+
+{
+   Fontconfig process-global allocations
+   Memcheck:Leak
+   match-leak-kinds: indirect
+   fun:*alloc
+   ...
+   fun:Fc*
+}
+
+{
+   GTK GIO module scan
+   Memcheck:Leak
+   match-leak-kinds: definite,indirect
+   fun:calloc
+   fun:g_malloc0
+   fun:g_type_create_instance
+   ...
+   fun:g_io_module_new
+   ...
+   fun:gtk_init_check
+}
+
+{
+   GTK GIO module scan strings
+   Memcheck:Leak
+   match-leak-kinds: indirect
+   fun:malloc
+   fun:g_malloc
+   fun:g_strdup
+   fun:g_io_module_new
+   ...
+   fun:gtk_init_check
+}
+
+{
+   Fontconfig XML configuration cache
+   Memcheck:Leak
+   match-leak-kinds: definite,indirect
+   fun:malloc
+   obj:/usr/lib*/libfontconfig.so*
+   ...
+   obj:/usr/lib*/libexpat.so*
+   ...
+   obj:/usr/lib*/libfontconfig.so*
+}
