@@ -5,7 +5,6 @@ const apprt = @import("../../apprt.zig");
 const configpkg = @import("../../config.zig");
 const CoreSurface = @import("../../Surface.zig");
 const ApprtApp = @import("App.zig");
-const Application = @import("class/application.zig").Application;
 const Surface = @import("class/surface.zig").Surface;
 
 /// The GObject Surface
@@ -28,8 +27,7 @@ pub fn core(self: *Self) *CoreSurface {
 }
 
 pub fn rtApp(self: *Self) *ApprtApp {
-    _ = self;
-    return Application.default().rt();
+    return self.surface.application().rt();
 }
 
 pub fn close(self: *Self, process_active: bool) void {

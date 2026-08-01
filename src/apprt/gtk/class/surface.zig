@@ -570,6 +570,11 @@ pub const Surface = extern struct {
     };
 
     const Private = struct {
+        /// Runtime owner for this surface. This is explicit so a surface does
+        /// not require GhosttyApplication to be the process-default
+        /// GApplication.
+        application: ?*Application = null,
+
         /// The configuration that this surface is using.
         config: ?*Config = null,
 
@@ -745,25 +750,43 @@ pub const Surface = extern struct {
         pub var offset: c_int = 0;
     };
 
-    pub fn new(overrides: struct {
+    pub const NewOptions = struct {
         command: ?configpkg.Command = null,
         shell_integration: ?configpkg.Config.ShellIntegration = null,
         working_directory: ?[:0]const u8 = null,
         title: ?[:0]const u8 = null,
 
         pub const none: @This() = .{};
-    }) *Self {
+    };
+
+    pub fn new(overrides: NewOptions) *Self {
+        return newWithApplication(Application.default(), overrides);
+    }
+
+    /// Construct a surface owned by an explicit Ghostty GTK runtime.
+    ///
+    /// The application does not need to be the process-default GApplication.
+    pub fn newWithApplication(app: *Application, overrides: NewOptions) *Self {
         const self = gobject.ext.newInstance(Self, .{
             .@"title-override" = overrides.title,
         });
-        const alloc = Application.default().allocator();
         const priv: *Private = self.private();
+        priv.application = app.ref();
+        priv.config = app.getConfig();
+        self.as(gobject.Object).notifyByPspec(properties.config.impl.param_spec);
+
+        const alloc = app.allocator();
         priv.overrides = .{
             .command = if (overrides.command) |c| c.clone(alloc) catch null else null,
             .shell_integration = overrides.shell_integration,
             .working_directory = if (overrides.working_directory) |wd| alloc.dupeZ(u8, wd) catch null else null,
         };
         return self;
+    }
+
+    /// The Ghostty runtime that owns this surface.
+    pub fn application(self: *Self) *Application {
+        return self.private().application.?;
     }
 
     pub fn core(self: *Self) ?*CoreSurface {
@@ -933,7 +956,7 @@ pub const Surface = extern struct {
         value: apprt.action.KeySequence,
     ) Allocator.Error!void {
         const priv = self.private();
-        const alloc = Application.default().allocator();
+        const alloc = self.application().allocator();
 
         self.as(gobject.Object).freezeNotify();
         defer self.as(gobject.Object).thawNotify();
@@ -970,7 +993,7 @@ pub const Surface = extern struct {
         value: apprt.action.KeyTable,
     ) Allocator.Error!void {
         const priv = self.private();
-        const alloc = Application.default().allocator();
+        const alloc = self.application().allocator();
 
         self.as(gobject.Object).freezeNotify();
         defer self.as(gobject.Object).thawNotify();
@@ -1148,7 +1171,7 @@ pub const Surface = extern struct {
     }
 
     pub fn commandFinished(self: *Self, value: apprt.Action.Value(.command_finished)) bool {
-        const app = Application.default();
+        const app = self.application();
         const alloc = app.allocator();
         const priv: *Private = self.private();
 
@@ -1391,7 +1414,7 @@ pub const Surface = extern struct {
             physical_key,
             gtk_mods,
             action,
-            Application.default().winproto(),
+            self.application().winproto(),
         );
 
         // Get our consumed modifiers
@@ -1597,7 +1620,7 @@ pub const Surface = extern struct {
     }
 
     pub fn defaultTermioEnv(self: *Self) !std.process.Environ.Map {
-        const app = Application.default();
+        const app = self.application();
         const alloc = app.allocator();
         var env = if (internal_os.isFlatpak())
             std.process.Environ.Map.init(alloc)
@@ -1755,7 +1778,7 @@ pub const Surface = extern struct {
     }
 
     pub fn sendDesktopNotification(self: *Self, title: [:0]const u8, body: [:0]const u8) void {
-        const app = Application.default();
+        const app = self.application();
         const priv: *Private = self.private();
 
         const core_surface = priv.core_surface orelse {
@@ -1809,13 +1832,6 @@ pub const Surface = extern struct {
         priv.mapped = false;
         priv.size = .{ .width = 0, .height = 0 };
         priv.vadj_signal_group = null;
-
-        // If our configuration is null then we get the configuration
-        // from the application.
-        if (priv.config == null) {
-            const app = Application.default();
-            priv.config = app.getConfig();
-        }
 
         // Setup our input method state
         priv.in_keyevent = .false;
@@ -1936,13 +1952,14 @@ pub const Surface = extern struct {
     }
 
     fn finalize(self: *Self) callconv(.c) void {
-        const alloc = Application.default().allocator();
         const priv = self.private();
+        const app = self.application();
+        const alloc = app.allocator();
         if (priv.core_surface) |v| {
             // Remove ourselves from the list of known surfaces in the app.
             // We do this before deinit in case a callback triggers
             // searching for this surface.
-            Application.default().core().deleteSurface(self.rt());
+            app.core().deleteSurface(self.rt());
 
             // NOTE: We must deinit the surface in the finalize call and NOT
             // the dispose call because the inspector widget relies on this
@@ -1953,6 +1970,10 @@ pub const Surface = extern struct {
             alloc.destroy(v);
 
             priv.core_surface = null;
+        }
+        if (priv.application) |app_ref| {
+            app_ref.unref();
+            priv.application = null;
         }
         if (priv.mouse_hover_url) |v| {
             glib.free(@ptrCast(@constCast(v)));
@@ -2168,7 +2189,7 @@ pub const Surface = extern struct {
         // Both dimensions must be configured
         if (config.@"window-height" <= 0 or config.@"window-width" <= 0) return;
 
-        const app = Application.default();
+        const app = self.application();
         const alloc = app.allocator();
 
         // Get content scale and compute DPI
@@ -2208,14 +2229,20 @@ pub const Surface = extern struct {
     /// Get the key sequence list. Full transfer.
     fn getKeySequence(self: *Self) ?*ext.StringList {
         const priv = self.private();
-        const alloc = Application.default().allocator();
+        const alloc = if (priv.application) |app|
+            app.allocator()
+        else
+            std.heap.c_allocator;
         return ext.StringList.create(alloc, priv.key_sequence.items) catch null;
     }
 
     /// Get the key table list. Full transfer.
     fn getKeyTable(self: *Self) ?*ext.StringList {
         const priv = self.private();
-        const alloc = Application.default().allocator();
+        const alloc = if (priv.application) |app|
+            app.allocator()
+        else
+            std.heap.c_allocator;
         return ext.StringList.create(alloc, priv.key_tables.items) catch null;
     }
 
@@ -2676,7 +2703,7 @@ pub const Surface = extern struct {
         _: f64,
         self: *Self,
     ) callconv(.c) c_int {
-        const alloc = Application.default().allocator();
+        const alloc = self.application().allocator();
 
         if (ext.gValueHolds(value, gdk.FileList.getGObjectType())) {
             var stream: std.Io.Writer.Allocating = .init(alloc);
@@ -3503,7 +3530,7 @@ pub const Surface = extern struct {
             return error.GLAreaError;
         }
 
-        const app = Application.default();
+        const app = self.application();
         const alloc = app.allocator();
 
         // Make our pointer to store our surface
@@ -4045,7 +4072,7 @@ const Clipboard = struct {
                 clipboard_type,
             ) orelse return;
 
-            const alloc = Application.default().allocator();
+            const alloc = self.application().allocator();
             if (alloc.alloc(*gdk.ContentProvider, contents.len)) |providers| {
                 // Note: we don't need to unref the individual providers
                 // because new_union takes ownership of them.
@@ -4143,7 +4170,7 @@ const Clipboard = struct {
         }
 
         // Allocate our userdata
-        const alloc = Application.default().allocator();
+        const alloc = self.application().allocator();
         const ud = try alloc.create(Request);
         errdefer alloc.destroy(ud);
         ud.* = .{
@@ -4316,10 +4343,9 @@ const Clipboard = struct {
         ) orelse return;
         const req: *Request = @ptrCast(@alignCast(ud orelse return));
 
-        const alloc = Application.default().allocator();
-        defer alloc.destroy(req);
-
         const self = req.self;
+        const alloc = self.application().allocator();
+        defer alloc.destroy(req);
         defer self.unref();
 
         var gerr: ?*glib.Error = null;
