@@ -112,3 +112,26 @@ export fn ghostty_gtk_embed_surface_new(
         if (title) |v| std.mem.span(v) else null,
     ));
 }
+
+export fn ghostty_gtk_embed_surface_grab_focus(surface: ?*anyopaque) void {
+    const value: *Surface = @ptrCast(@alignCast(surface orelse return));
+    value.grabFocus();
+}
+
+export fn ghostty_gtk_embed_surface_send_text(
+    surface: ?*anyopaque,
+    text: ?[*:0]const u8,
+) bool {
+    const value: *Surface = @ptrCast(@alignCast(surface orelse return false));
+    const core = value.core() orelse return false;
+    const input = std.mem.span(text orelse return false);
+    core.textCallback(input) catch return false;
+    return true;
+}
+
+export fn ghostty_gtk_embed_surface_request_paste(
+    surface: ?*anyopaque,
+) bool {
+    const value: *Surface = @ptrCast(@alignCast(surface orelse return false));
+    return value.clipboardRequest(.standard, .paste) catch false;
+}

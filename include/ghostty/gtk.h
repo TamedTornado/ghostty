@@ -39,6 +39,21 @@ GtkWidget *ghostty_gtk_embed_surface_new(
     const char *title
 );
 
+// Transfers keyboard focus to the terminal's internal input widget. Calling
+// gtk_widget_grab_focus() on the returned composite widget is insufficient.
+void ghostty_gtk_embed_surface_grab_focus(GtkWidget *surface);
+
+// Sends UTF-8 text through the terminal input path. Returns false for a
+// null/uninitialized surface, null text, or input error.
+bool ghostty_gtk_embed_surface_send_text(
+    GtkWidget *surface,
+    const char *text
+);
+
+// Starts an asynchronous paste from the standard GTK clipboard. Completion is
+// reported by the surface's existing "clipboard-read" signal.
+bool ghostty_gtk_embed_surface_request_paste(GtkWidget *surface);
+
 #ifdef __cplusplus
 }
 #endif
