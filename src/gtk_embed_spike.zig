@@ -22,12 +22,26 @@ const Host = struct {
     runtime: *apprt.App,
     application: *c.GtkApplication,
     expected_surfaces: usize = 4,
+    interaction: bool = false,
     window: ?*c.GtkWindow = null,
+    surfaces: [16]?*Surface = .{null} ** 16,
     tick_source: c_uint = 0,
     default_is_plain_host: bool = false,
     surfaces_initialized: usize = 0,
     children_exited: usize = 0,
     tick_failed: bool = false,
+    keyboard_sent: bool = false,
+    keyboard_acknowledged: bool = false,
+    clipboard_write: bool = false,
+    clipboard_read: bool = false,
+    clipboard_acknowledged: bool = false,
+    focus_index: usize = 0,
+    focus_confirmed: usize = 0,
+    resize_width_before: c_int = 0,
+    resize_requested: bool = false,
+    resize_observed: bool = false,
+    valid_content_scales: usize = 0,
+    minimum_content_scale: f32 = 0,
 };
 
 pub fn main() !u8 {
@@ -54,10 +68,14 @@ pub fn main() !u8 {
         .runtime = &runtime,
         .application = app,
     };
+    host.interaction = c.g_getenv("GHOSTTY_EMBED_SPIKE_INTERACTION") != null;
     if (c.g_getenv("GHOSTTY_EMBED_SPIKE_SURFACES")) |value| {
         const parsed = std.fmt.parseInt(usize, std.mem.span(value), 10) catch return 3;
         if (parsed == 0 or parsed > 16) return 3;
         host.expected_surfaces = parsed;
+    }
+    if (c.g_getenv("GHOSTTY_EMBED_MIN_SCALE")) |value| {
+        host.minimum_content_scale = std.fmt.parseFloat(f32, std.mem.span(value)) catch return 3;
     }
 
     _ = c.g_signal_connect_data(
@@ -76,10 +94,20 @@ pub fn main() !u8 {
     if (!host.default_is_plain_host or
         host.surfaces_initialized != host.expected_surfaces or
         host.children_exited != host.expected_surfaces or
-        host.tick_failed)
+        host.tick_failed or
+        (host.interaction and
+            (!host.keyboard_sent or
+                !host.keyboard_acknowledged or
+                !host.clipboard_write or
+                !host.clipboard_read or
+                !host.clipboard_acknowledged or
+                host.focus_confirmed != host.expected_surfaces or
+                !host.resize_requested or
+                !host.resize_observed or
+                host.valid_content_scales != host.expected_surfaces)))
     {
         std.debug.print(
-            "embed-spike: FAIL default_plain={} initialized={}/{} child_exited={}/{} tick_failed={}\n",
+            "embed-spike: FAIL default_plain={} initialized={}/{} child_exited={}/{} tick_failed={} keyboard={}/{} clipboard={}/{}/{} focus={}/{} resize={}/{} scales={}/{}\n",
             .{
                 host.default_is_plain_host,
                 host.surfaces_initialized,
@@ -87,6 +115,17 @@ pub fn main() !u8 {
                 host.children_exited,
                 host.expected_surfaces,
                 host.tick_failed,
+                host.keyboard_sent,
+                host.keyboard_acknowledged,
+                host.clipboard_write,
+                host.clipboard_read,
+                host.clipboard_acknowledged,
+                host.focus_confirmed,
+                host.expected_surfaces,
+                host.resize_requested,
+                host.resize_observed,
+                host.valid_content_scales,
+                host.expected_surfaces,
             },
         );
         return 2;
@@ -109,9 +148,18 @@ fn activate(app: *c.GtkApplication, userdata: ?*anyopaque) callconv(.c) void {
     const box: *c.GtkBox = @ptrCast(c.gtk_box_new(c.GTK_ORIENTATION_VERTICAL, 0));
     for (0..host.expected_surfaces) |i| {
         const surface = Surface.newWithApplication(host.runtime.app, .{
-            .command = .{ .shell = "printf ghostty-embed-pty; sleep 2" },
+            .command = .{ .shell = if (!host.interaction)
+                "printf ghostty-embed-pty; sleep 2"
+            else switch (i) {
+                0 => "value=$(dd bs=1 count=22 2>/dev/null); [ \"$value\" = ghostty-embed-keyboard ] || sleep 30; IFS= read -r blank; printf '\\033]2;ghostty-keyboard-ack\\a'; sleep 1",
+                1 => "value=$(dd bs=1 count=23 2>/dev/null); if [ \"$value\" = ghostty-embed-clipboard ]; then printf '\\033]2;ghostty-clipboard-ack\\a'; else printf '\\033]2;ghostty-clipboard-fail\\a'; fi; sleep 1",
+                2 => "trap 'exit 0' WINCH; while :; do sleep 1; done",
+                3 => "printf '\\033]52;c;Z2hvc3R0eS1lbWJlZC1jbGlwYm9hcmQ=\\a'; sleep 2",
+                else => "sleep 2",
+            } },
             .title = "Embedded Ghostty surface",
         });
+        host.surfaces[i] = surface;
         std.debug.print("embed-spike: GhosttySurface constructed index={}\n", .{i});
 
         _ = Surface.signals.init.connect(
@@ -128,6 +176,31 @@ fn activate(app: *c.GtkApplication, userdata: ?*anyopaque) callconv(.c) void {
             host,
             .{ .detail = "child-exited" },
         );
+        if (host.interaction) {
+            _ = gobject.Object.signals.notify.connect(
+                surface,
+                *Host,
+                titleChanged,
+                host,
+                .{ .detail = "title" },
+            );
+        }
+        if (host.interaction) {
+            _ = Surface.signals.@"clipboard-write".connect(
+                surface,
+                *Host,
+                clipboardWrite,
+                host,
+                .{},
+            );
+            _ = Surface.signals.@"clipboard-read".connect(
+                surface,
+                *Host,
+                clipboardRead,
+                host,
+                .{},
+            );
+        }
         c.gtk_box_append(box, @ptrCast(surface));
     }
 
@@ -137,12 +210,136 @@ fn activate(app: *c.GtkApplication, userdata: ?*anyopaque) callconv(.c) void {
     c.gtk_window_present(window);
 
     host.tick_source = c.g_timeout_add(1, tick, host);
-    _ = c.g_timeout_add(5000, quit, host);
+    _ = c.g_timeout_add(if (host.interaction) 6500 else 5000, quit, host);
 }
 
 fn surfaceInitialized(_: *Surface, host: *Host) callconv(.c) void {
     host.surfaces_initialized += 1;
     std.debug.print("embed-spike: core surface initialized count={}\n", .{host.surfaces_initialized});
+    if (host.interaction and host.surfaces_initialized == host.expected_surfaces) {
+        _ = c.g_timeout_add(100, sendKeyboard, host);
+        _ = c.g_timeout_add(250, cycleFocus, host);
+        _ = c.g_timeout_add(500, verifyContentScales, host);
+        _ = c.g_timeout_add(1600, captureResizeWidth, host);
+        _ = c.g_timeout_add(2000, requestResize, host);
+        _ = c.g_timeout_add(2300, verifyResize, host);
+    }
+}
+
+fn verifyContentScales(userdata: ?*anyopaque) callconv(.c) c_int {
+    const host: *Host = @ptrCast(@alignCast(userdata orelse return 0));
+    host.valid_content_scales = 0;
+    for (host.surfaces[0..host.expected_surfaces]) |surface_| {
+        const surface = surface_ orelse continue;
+        const scale = surface.getContentScale();
+        if (scale.x > 0 and scale.y > 0 and
+            scale.x >= host.minimum_content_scale and
+            scale.y >= host.minimum_content_scale) host.valid_content_scales += 1;
+        std.debug.print("embed-spike: content scale x={d:.2} y={d:.2}\n", .{ scale.x, scale.y });
+    }
+    return 0;
+}
+
+fn sendKeyboard(userdata: ?*anyopaque) callconv(.c) c_int {
+    const host: *Host = @ptrCast(@alignCast(userdata orelse return 0));
+    const surface = host.surfaces[0] orelse return 0;
+    const core = surface.core() orelse return 0;
+    core.textCallback("ghostty-embed-keyboard") catch |err| {
+        std.debug.print("embed-spike: keyboard injection failed: {}\n", .{err});
+        return 0;
+    };
+    _ = core.keyCallback(.{ .key = .enter }) catch |err| {
+        std.debug.print("embed-spike: enter key injection failed: {}\n", .{err});
+        return 0;
+    };
+    host.keyboard_sent = true;
+    std.debug.print("embed-spike: keyboard text sent\n", .{});
+    return 0;
+}
+
+fn clipboardWrite(
+    _: *Surface,
+    clipboard_type: apprt.Clipboard,
+    text: [*:0]const u8,
+    host: *Host,
+) callconv(.c) void {
+    if (clipboard_type != .standard or
+        !std.mem.eql(u8, std.mem.span(text), "ghostty-embed-clipboard")) return;
+    host.clipboard_write = true;
+    const reader = host.surfaces[1] orelse return;
+    const started = reader.clipboardRequest(.standard, .paste) catch return;
+    std.debug.print("embed-spike: clipboard write observed read_started={}\n", .{started});
+}
+
+fn clipboardRead(surface: *Surface, host: *Host) callconv(.c) void {
+    host.clipboard_read = true;
+    if (surface.core()) |core| {
+        _ = core.keyCallback(.{ .key = .enter }) catch |err| {
+            std.debug.print("embed-spike: clipboard enter injection failed: {}\n", .{err});
+        };
+    }
+    std.debug.print("embed-spike: clipboard read observed\n", .{});
+}
+
+fn titleChanged(surface: *Surface, _: *gobject.ParamSpec, host: *Host) callconv(.c) void {
+    const title = surface.getTitle() orelse return;
+    if (surface == host.surfaces[0] and std.mem.eql(u8, title, "ghostty-keyboard-ack")) {
+        host.keyboard_acknowledged = true;
+        std.debug.print("embed-spike: keyboard input acknowledged by child\n", .{});
+    } else if (surface == host.surfaces[1] and std.mem.eql(u8, title, "ghostty-clipboard-ack")) {
+        host.clipboard_acknowledged = true;
+        std.debug.print("embed-spike: clipboard paste acknowledged by child\n", .{});
+    } else if (surface == host.surfaces[1] and std.mem.eql(u8, title, "ghostty-clipboard-fail")) {
+        std.debug.print("embed-spike: clipboard paste rejected by child\n", .{});
+    }
+}
+
+fn cycleFocus(userdata: ?*anyopaque) callconv(.c) c_int {
+    const host: *Host = @ptrCast(@alignCast(userdata orelse return 0));
+    if (host.focus_index > 0) {
+        const prior = host.surfaces[host.focus_index - 1] orelse return 0;
+        if (!prior.getFocused()) {
+            prior.grabFocus();
+            return 1;
+        }
+        host.focus_confirmed += 1;
+    }
+    if (host.focus_index == host.expected_surfaces) {
+        std.debug.print("embed-spike: focus transitions confirmed={}\n", .{host.focus_confirmed});
+        return 0;
+    }
+    const surface = host.surfaces[host.focus_index] orelse return 0;
+    surface.grabFocus();
+    host.focus_index += 1;
+    return 1;
+}
+
+fn captureResizeWidth(userdata: ?*anyopaque) callconv(.c) c_int {
+    const host: *Host = @ptrCast(@alignCast(userdata orelse return 0));
+    const surface = host.surfaces[2] orelse return 0;
+    host.resize_width_before = c.gtk_widget_get_width(@ptrCast(surface));
+    return 0;
+}
+
+fn requestResize(userdata: ?*anyopaque) callconv(.c) c_int {
+    const host: *Host = @ptrCast(@alignCast(userdata orelse return 0));
+    const window = host.window orelse return 0;
+    c.gtk_window_set_default_size(window, 1200, 950);
+    host.resize_requested = true;
+    return 0;
+}
+
+fn verifyResize(userdata: ?*anyopaque) callconv(.c) c_int {
+    const host: *Host = @ptrCast(@alignCast(userdata orelse return 0));
+    const surface = host.surfaces[2] orelse return 0;
+    const width = c.gtk_widget_get_width(@ptrCast(surface));
+    host.resize_observed = host.resize_width_before > 0 and width != host.resize_width_before;
+    std.debug.print("embed-spike: resize width {} -> {} observed={}\n", .{
+        host.resize_width_before,
+        width,
+        host.resize_observed,
+    });
+    return @intFromBool(!host.resize_observed);
 }
 
 fn childExited(

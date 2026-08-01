@@ -85,6 +85,10 @@ pub fn build(b: *std.Build) !void {
         "gtk-embed-spike",
         "Run the minimal alternate GTK embedding host",
     );
+    const gtk_embed_interaction_step = b.step(
+        "gtk-embed-interaction",
+        "Run GTK embedding input, clipboard, focus, and resize checks",
+    );
     const gtk_embed_spike_valgrind_step = b.step(
         "gtk-embed-spike-valgrind",
         "Run the alternate GTK embedding host under Valgrind",
@@ -124,6 +128,18 @@ pub fn build(b: *std.Build) !void {
         if (b.args) |args| run_gtk_embed_spike.addArgs(args);
         gtk_embed_spike_step.dependOn(&run_gtk_embed_spike.step);
 
+        const run_gtk_embed_interaction = b.addRunArtifact(gtk_embed_spike);
+        run_gtk_embed_interaction.setEnvironmentVariable(
+            "GHOSTTY_RESOURCES_DIR",
+            b.getInstallPath(.prefix, "share/ghostty"),
+        );
+        run_gtk_embed_interaction.setEnvironmentVariable(
+            "GHOSTTY_EMBED_SPIKE_INTERACTION",
+            "1",
+        );
+        if (b.args) |args| run_gtk_embed_interaction.addArgs(args);
+        gtk_embed_interaction_step.dependOn(&run_gtk_embed_interaction.step);
+
         const valgrind_gtk_embed_spike = b.addSystemCommand(&.{
             "valgrind",
             "--leak-check=full",
@@ -153,6 +169,10 @@ pub fn build(b: *std.Build) !void {
     } else {
         try gtk_embed_spike_step.addError(
             "gtk-embed-spike requires the GTK application runtime",
+            .{},
+        );
+        try gtk_embed_interaction_step.addError(
+            "gtk-embed-interaction requires the GTK application runtime",
             .{},
         );
         try gtk_embed_spike_valgrind_step.addError(
