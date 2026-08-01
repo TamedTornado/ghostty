@@ -9,7 +9,8 @@ const apprt = @import("apprt.zig");
 const CoreApp = @import("App.zig");
 const Surface = @import("apprt/gtk/class/surface.zig").Surface;
 const gobject = @import("gobject");
-const state = &@import("global.zig").state;
+const global = @import("global.zig");
+const state = &global.state;
 
 const c = @cImport({
     @cInclude("adwaita.h");
@@ -20,17 +21,21 @@ const Host = struct {
     core_app: *CoreApp,
     runtime: *apprt.App,
     application: *c.GtkApplication,
+    expected_surfaces: usize = 4,
     window: ?*c.GtkWindow = null,
     tick_source: c_uint = 0,
     default_is_plain_host: bool = false,
-    surface_initialized: bool = false,
-    child_exited: bool = false,
+    surfaces_initialized: usize = 0,
+    children_exited: usize = 0,
     tick_failed: bool = false,
 };
 
 pub fn main() !u8 {
     try state.init();
     defer state.deinit();
+    if (c.g_getenv("GHOSTTY_EMBED_SPIKE_EPOLL") != null) {
+        _ = global.xev.prefer(.epoll);
+    }
 
     const core_app = try CoreApp.create(state.alloc);
     defer core_app.destroy();
@@ -49,6 +54,11 @@ pub fn main() !u8 {
         .runtime = &runtime,
         .application = app,
     };
+    if (c.g_getenv("GHOSTTY_EMBED_SPIKE_SURFACES")) |value| {
+        const parsed = std.fmt.parseInt(usize, std.mem.span(value), 10) catch return 3;
+        if (parsed == 0 or parsed > 16) return 3;
+        host.expected_surfaces = parsed;
+    }
 
     _ = c.g_signal_connect_data(
         app,
@@ -64,16 +74,18 @@ pub fn main() !u8 {
     while (c.g_main_context_iteration(null, 0) != 0) {}
 
     if (!host.default_is_plain_host or
-        !host.surface_initialized or
-        !host.child_exited or
+        host.surfaces_initialized != host.expected_surfaces or
+        host.children_exited != host.expected_surfaces or
         host.tick_failed)
     {
         std.debug.print(
-            "embed-spike: FAIL default_plain={} initialized={} child_exited={} tick_failed={}\n",
+            "embed-spike: FAIL default_plain={} initialized={}/{} child_exited={}/{} tick_failed={}\n",
             .{
                 host.default_is_plain_host,
-                host.surface_initialized,
-                host.child_exited,
+                host.surfaces_initialized,
+                host.expected_surfaces,
+                host.children_exited,
+                host.expected_surfaces,
                 host.tick_failed,
             },
         );
@@ -94,30 +106,34 @@ fn activate(app: *c.GtkApplication, userdata: ?*anyopaque) callconv(.c) void {
     const window: *c.GtkWindow = @ptrCast(c.gtk_application_window_new(app));
     host.window = window;
 
-    const surface = Surface.newWithApplication(host.runtime.app, .{
-        .command = .{ .shell = "printf ghostty-embed-pty; sleep 2" },
-        .title = "Embedded Ghostty surface",
-    });
-    std.debug.print("embed-spike: GhosttySurface constructed\n", .{});
+    const box: *c.GtkBox = @ptrCast(c.gtk_box_new(c.GTK_ORIENTATION_VERTICAL, 0));
+    for (0..host.expected_surfaces) |i| {
+        const surface = Surface.newWithApplication(host.runtime.app, .{
+            .command = .{ .shell = "printf ghostty-embed-pty; sleep 2" },
+            .title = "Embedded Ghostty surface",
+        });
+        std.debug.print("embed-spike: GhosttySurface constructed index={}\n", .{i});
 
-    _ = Surface.signals.init.connect(
-        surface,
-        *Host,
-        surfaceInitialized,
-        host,
-        .{},
-    );
-    _ = gobject.Object.signals.notify.connect(
-        surface,
-        *Host,
-        childExited,
-        host,
-        .{ .detail = "child-exited" },
-    );
+        _ = Surface.signals.init.connect(
+            surface,
+            *Host,
+            surfaceInitialized,
+            host,
+            .{},
+        );
+        _ = gobject.Object.signals.notify.connect(
+            surface,
+            *Host,
+            childExited,
+            host,
+            .{ .detail = "child-exited" },
+        );
+        c.gtk_box_append(box, @ptrCast(surface));
+    }
 
     c.gtk_window_set_title(window, "Ghostty GTK embed spike");
-    c.gtk_window_set_default_size(window, 800, 600);
-    c.gtk_window_set_child(window, @ptrCast(surface));
+    c.gtk_window_set_default_size(window, 1000, 800);
+    c.gtk_window_set_child(window, @ptrCast(box));
     c.gtk_window_present(window);
 
     host.tick_source = c.g_timeout_add(1, tick, host);
@@ -125,8 +141,8 @@ fn activate(app: *c.GtkApplication, userdata: ?*anyopaque) callconv(.c) void {
 }
 
 fn surfaceInitialized(_: *Surface, host: *Host) callconv(.c) void {
-    host.surface_initialized = true;
-    std.debug.print("embed-spike: core surface initialized\n", .{});
+    host.surfaces_initialized += 1;
+    std.debug.print("embed-spike: core surface initialized count={}\n", .{host.surfaces_initialized});
 }
 
 fn childExited(
@@ -134,8 +150,8 @@ fn childExited(
     _: *gobject.ParamSpec,
     host: *Host,
 ) callconv(.c) void {
-    host.child_exited = true;
-    std.debug.print("embed-spike: child-exited observed\n", .{});
+    host.children_exited += 1;
+    std.debug.print("embed-spike: child-exited observed count={}\n", .{host.children_exited});
 }
 
 fn tick(userdata: ?*anyopaque) callconv(.c) c_int {

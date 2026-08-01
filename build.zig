@@ -77,6 +77,10 @@ pub fn build(b: *std.Build) !void {
         "gtk-embed-spike",
         "Run the minimal alternate GTK embedding host",
     );
+    const gtk_embed_spike_valgrind_step = b.step(
+        "gtk-embed-spike-valgrind",
+        "Run the alternate GTK embedding host under Valgrind",
+    );
     const translations_step = b.step(
         "update-translations",
         "Update translation files",
@@ -111,9 +115,40 @@ pub fn build(b: *std.Build) !void {
         );
         if (b.args) |args| run_gtk_embed_spike.addArgs(args);
         gtk_embed_spike_step.dependOn(&run_gtk_embed_spike.step);
+
+        const valgrind_gtk_embed_spike = b.addSystemCommand(&.{
+            "valgrind",
+            "--leak-check=full",
+            "--show-leak-kinds=definite,indirect",
+            "--errors-for-leak-kinds=definite,indirect",
+            "--undef-value-errors=no",
+            "--error-exitcode=99",
+            b.fmt("--suppressions={s}", .{b.pathFromRoot("valgrind.supp")}),
+            b.fmt("--suppressions={s}", .{b.pathFromRoot("src/gtk_embed_spike.valgrind.supp")}),
+            b.fmt("--log-file={s}", .{b.pathFromRoot("zig-out/gtk-embed-spike-valgrind.log")}),
+        });
+        valgrind_gtk_embed_spike.addArtifactArg(gtk_embed_spike);
+        valgrind_gtk_embed_spike.setEnvironmentVariable(
+            "GHOSTTY_RESOURCES_DIR",
+            b.getInstallPath(.prefix, "share/ghostty"),
+        );
+        valgrind_gtk_embed_spike.setEnvironmentVariable(
+            "GHOSTTY_EMBED_SPIKE_SURFACES",
+            "1",
+        );
+        valgrind_gtk_embed_spike.setEnvironmentVariable(
+            "GHOSTTY_EMBED_SPIKE_EPOLL",
+            "1",
+        );
+        if (b.args) |args| valgrind_gtk_embed_spike.addArgs(args);
+        gtk_embed_spike_valgrind_step.dependOn(&valgrind_gtk_embed_spike.step);
     } else {
         try gtk_embed_spike_step.addError(
             "gtk-embed-spike requires the GTK application runtime",
+            .{},
+        );
+        try gtk_embed_spike_valgrind_step.addError(
+            "gtk-embed-spike-valgrind requires the GTK application runtime",
             .{},
         );
     }
