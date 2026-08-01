@@ -31,6 +31,22 @@ A file for [guiding coding agents](https://agents.md/).
 - macOS app: `macos/`
 - GTK (Linux and FreeBSD) app: `src/apprt/gtk`
 
+## Zentty Downstream Dogfood Record
+
+This checkout's `zentty/gtk-embed` branch supports the public Zentty Linux
+port. While working on that branch, maintain the canonical contemporaneous
+field report in the sibling `TamedTornado/zentty` checkout:
+
+`../zentty/docs/design/zentty-linux-dogfood-2026-08-01.md`
+
+Follow `../zentty/docs/dogfood-field-reporting.md`. Record observations,
+evidence, hypotheses, failed attempts, diagnosis, repair, regression proof,
+and live outcome as they become known. Cross-link Ghostty and Zentty commits
+when a repair spans both repositories.
+
+This section is downstream-only. Keep it and any Zentty-specific build glue
+out of patches proposed to upstream Ghostty.
+
 ## Issue and PR Guidelines
 
 - Never create an issue.
