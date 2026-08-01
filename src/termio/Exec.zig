@@ -2012,7 +2012,10 @@ fn execCommand(
                 try args.append(alloc, "-c");
             }
 
-            try args.append(alloc, v);
+            // The source command commonly belongs to a temporary Config
+            // arena. Subprocess owns its own arena, so retain the command
+            // text here just as the direct-command branch does above.
+            try args.append(alloc, try alloc.dupeZ(u8, v));
             break :shell try args.toOwnedSlice(alloc);
         },
     };
@@ -2218,6 +2221,33 @@ test "execCommand: direct command, config freed" {
     try testing.expectEqual(2, result.len);
     try testing.expectEqualStrings(result[0], "foo");
     try testing.expectEqualStrings(result[1], "bar baz");
+}
+
+test "execCommand: shell command, config freed" {
+    if (comptime builtin.os.tag == .windows) return error.SkipZigTest;
+
+    const testing = std.testing;
+    var arena = ArenaAllocator.init(testing.allocator);
+    defer arena.deinit();
+    const alloc = arena.allocator();
+
+    var command_arena = ArenaAllocator.init(testing.allocator);
+    const command = try (configpkg.Command{
+        .shell = "printf ghostty-embed-pty",
+    }).clone(command_arena.allocator());
+
+    const result = try execCommand(alloc, command, struct {
+        fn get(_: Allocator) !PasswdEntry {
+            return error.Fail;
+        }
+    });
+
+    command_arena.deinit();
+
+    try testing.expectEqual(3, result.len);
+    try testing.expectEqualStrings("/bin/sh", result[0]);
+    try testing.expectEqualStrings("-c", result[1]);
+    try testing.expectEqualStrings("printf ghostty-embed-pty", result[2]);
 }
 
 test "execCommand windows: bare cmd.exe resolves via COMSPEC" {
