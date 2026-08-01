@@ -73,6 +73,10 @@ pub fn build(b: *std.Build) !void {
         "test-valgrind",
         "Run tests under valgrind",
     );
+    const gtk_embed_spike_step = b.step(
+        "gtk-embed-spike",
+        "Run the minimal alternate GTK embedding host",
+    );
     const translations_step = b.step(
         "update-translations",
         "Update translation files",
@@ -84,6 +88,35 @@ pub fn build(b: *std.Build) !void {
 
     // Ghostty executable, the actual runnable Ghostty program.
     const exe = try buildpkg.GhosttyExe.init(b, &config, &deps);
+
+    // A deliberately small, non-Ghostty host for proving that the GTK
+    // terminal surface can be embedded without GhosttyApplication. Keep this
+    // isolated from the normal build until the experiment yields a stable API.
+    if (config.app_runtime == .gtk) {
+        const gtk_embed_spike = b.addExecutable(.{
+            .name = "ghostty-gtk-embed-spike",
+            .root_module = b.createModule(.{
+                .root_source_file = b.path("src/gtk_embed_spike.zig"),
+                .target = config.target,
+                .optimize = config.optimize,
+            }),
+            .use_llvm = true,
+        });
+        _ = try deps.add(gtk_embed_spike);
+
+        const run_gtk_embed_spike = b.addRunArtifact(gtk_embed_spike);
+        run_gtk_embed_spike.setEnvironmentVariable(
+            "GHOSTTY_RESOURCES_DIR",
+            b.getInstallPath(.prefix, "share/ghostty"),
+        );
+        if (b.args) |args| run_gtk_embed_spike.addArgs(args);
+        gtk_embed_spike_step.dependOn(&run_gtk_embed_spike.step);
+    } else {
+        try gtk_embed_spike_step.addError(
+            "gtk-embed-spike requires the GTK application runtime",
+            .{},
+        );
+    }
 
     // Ghostty docs
     const docs = try buildpkg.GhosttyDocs.init(b, &deps);
