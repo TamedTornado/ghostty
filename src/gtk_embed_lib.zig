@@ -7,6 +7,7 @@
 const std = @import("std");
 const apprt = @import("apprt.zig");
 const CoreApp = @import("App.zig");
+const gobject = @import("gobject");
 const Surface = @import("apprt/gtk/class/surface.zig").Surface;
 const state = &@import("global.zig").state;
 const xev = @import("global.zig").xev;
@@ -16,6 +17,9 @@ const AsyncBackend = enum(c_int) {
     epoll = 1,
     io_uring = 2,
 };
+
+var active_runtime: ?*Runtime = null;
+var runtime_was_created = false;
 
 pub const Runtime = struct {
     core_app: *CoreApp,
@@ -81,19 +85,26 @@ export fn ghostty_gtk_embed_runtime_new_with_async_backend(
 }
 
 fn createRuntime(async_backend: AsyncBackend) ?*Runtime {
-    return Runtime.create(async_backend) catch |err| {
+    if (runtime_was_created) return null;
+    const runtime = Runtime.create(async_backend) catch |err| {
         std.log.err("failed to initialize GTK embedding runtime err={}", .{err});
         return null;
     };
+    active_runtime = runtime;
+    runtime_was_created = true;
+    return runtime;
 }
 
 export fn ghostty_gtk_embed_runtime_free(runtime: ?*Runtime) void {
     const value = runtime orelse return;
+    if (active_runtime != value) return;
+    active_runtime = null;
     value.destroy();
 }
 
 export fn ghostty_gtk_embed_runtime_tick(runtime: ?*Runtime) bool {
     const value = runtime orelse return false;
+    if (active_runtime != value) return false;
     value.tick() catch |err| {
         std.log.err("GTK embedding runtime tick failed err={}", .{err});
         return false;
@@ -107,6 +118,7 @@ export fn ghostty_gtk_embed_surface_new(
     title: ?[*:0]const u8,
 ) ?*anyopaque {
     const value = runtime orelse return null;
+    if (active_runtime != value) return null;
     return @ptrCast(value.newSurface(
         if (command) |v| std.mem.span(v) else null,
         if (title) |v| std.mem.span(v) else null,
@@ -114,7 +126,7 @@ export fn ghostty_gtk_embed_surface_new(
 }
 
 export fn ghostty_gtk_embed_surface_grab_focus(surface: ?*anyopaque) void {
-    const value: *Surface = @ptrCast(@alignCast(surface orelse return));
+    const value = getSurface(surface) orelse return;
     value.grabFocus();
 }
 
@@ -122,7 +134,7 @@ export fn ghostty_gtk_embed_surface_send_text(
     surface: ?*anyopaque,
     text: ?[*:0]const u8,
 ) bool {
-    const value: *Surface = @ptrCast(@alignCast(surface orelse return false));
+    const value = getSurface(surface) orelse return false;
     const core = value.core() orelse return false;
     const input = std.mem.span(text orelse return false);
     core.textCallback(input) catch return false;
@@ -132,6 +144,13 @@ export fn ghostty_gtk_embed_surface_send_text(
 export fn ghostty_gtk_embed_surface_request_paste(
     surface: ?*anyopaque,
 ) bool {
-    const value: *Surface = @ptrCast(@alignCast(surface orelse return false));
+    const value = getSurface(surface) orelse return false;
     return value.clipboardRequest(.standard, .paste) catch false;
+}
+
+fn getSurface(surface: ?*anyopaque) ?*Surface {
+    const instance: *gobject.TypeInstance = @ptrCast(@alignCast(
+        surface orelse return null,
+    ));
+    return gobject.ext.cast(Surface, instance);
 }
