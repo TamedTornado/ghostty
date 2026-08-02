@@ -119,6 +119,12 @@ pub fn build(b: *std.Build) !void {
             // Keep private dynamic dependencies discoverable when a host
             // installs them beside the embedding library.
             gtk_embed_lib.root_module.addRPathSpecial("$ORIGIN");
+            // This library statically links several C dependencies. Do not
+            // expose their thousands of implementation symbols as accidental
+            // parts of the embedding ABI.
+            gtk_embed_lib.version_script = b.path(
+                "src/gtk_embed_lib.version-script",
+            );
         }
         _ = try deps.add(gtk_embed_lib);
         const install_gtk_embed_lib = b.addInstallArtifact(gtk_embed_lib, .{});
