@@ -1943,22 +1943,7 @@ pub const Surface = extern struct {
         const priv = self.private();
         const app = self.application();
         const alloc = app.allocator();
-        if (priv.core_surface) |v| {
-            // Remove ourselves from the list of known surfaces in the app.
-            // We do this before deinit in case a callback triggers
-            // searching for this surface.
-            app.core().deleteSurface(self.rt());
-
-            // NOTE: We must deinit the surface in the finalize call and NOT
-            // the dispose call because the inspector widget relies on this
-            // behavior with a weakRef to properly deactivate.
-
-            // Deinit the surface
-            v.deinit();
-            alloc.destroy(v);
-
-            priv.core_surface = null;
-        }
+        self.deinitCore();
         if (priv.application) |app_ref| {
             app_ref.unref();
             priv.application = null;
@@ -2010,6 +1995,24 @@ pub const Surface = extern struct {
             Class.parent,
             self.as(Parent),
         );
+    }
+
+    /// Deinitialize the core surface before an embedding host releases a
+    /// detached widget. Ordinary Ghostty widgets call this from `finalize`;
+    /// the explicit embedding lifecycle may call it earlier because GTK/GSK
+    /// can retain an unparented GL widget beyond the host's final reference.
+    pub fn deinitCore(self: *Self) void {
+        const priv = self.private();
+        const app = self.application();
+        const alloc = app.allocator();
+        if (priv.core_surface) |v| {
+            // Remove ourselves from the list of known surfaces before deinit
+            // in case a callback searches for this surface.
+            app.core().deleteSurface(self.rt());
+            v.deinit();
+            alloc.destroy(v);
+            priv.core_surface = null;
+        }
     }
 
     //---------------------------------------------------------------

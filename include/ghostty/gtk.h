@@ -46,6 +46,17 @@ GtkWidget *ghostty_gtk_embed_surface_new(
     const char *title
 );
 
+/**
+ * Close the native terminal state for an initialized, detached embedding
+ * surface.
+ *
+ * The caller retains its GtkWidget reference and must release it normally.
+ * After this succeeds, no other ghostty_gtk_embed_surface_* operation is
+ * valid for this widget. This must precede runtime destruction when GTK/GSK
+ * may still retain the unparented widget internally.
+ */
+bool ghostty_gtk_embed_surface_close(GtkWidget *surface);
+
 // Transfers keyboard focus to the terminal's internal input widget. Calling
 // gtk_widget_grab_focus() on the returned composite widget is insufficient.
 // Null and non-Ghostty widgets are ignored.
