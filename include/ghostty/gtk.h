@@ -47,8 +47,8 @@ GtkWidget *ghostty_gtk_embed_surface_new(
 );
 
 /**
- * Close the native terminal state for an initialized, detached embedding
- * surface.
+ * Close the native terminal state for a detached embedding surface. This is
+ * also valid before the surface has initialized its terminal core.
  *
  * The caller retains its GtkWidget reference and must release it normally.
  * After this succeeds, no other ghostty_gtk_embed_surface_* operation is
