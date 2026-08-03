@@ -111,7 +111,13 @@ const PosixPty = struct {
 
     pub const Fd = posix.fd_t;
 
-    const c = @import("pty-c");
+const c = @import("pty-c");
+
+const linux_libc = struct {
+    /// Declare this directly instead of using glibc's fortified inline
+    /// wrapper, which Zig 0.16 cannot currently translate on Ubuntu 24.04.
+    extern fn ptsname_r(fd: c_int, buf: [*]u8, len: usize) c_int;
+};
 
     /// The file descriptors for the master and slave side of the pty.
     /// The slave side is never closed automatically by this struct
@@ -310,7 +316,7 @@ const PosixPty = struct {
                         }
                     },
                     .linux => {
-                        if (c.ptsname_r(self.master, &self.tty_name_buf, self.tty_name_buf.len) != 0) return null;
+                        if (linux_libc.ptsname_r(self.master, &self.tty_name_buf, self.tty_name_buf.len) != 0) return null;
                         const tty_name: [:0]const u8 = std.mem.sliceTo(&self.tty_name_buf, 0);
                         self.tty_name = tty_name;
                         return tty_name;

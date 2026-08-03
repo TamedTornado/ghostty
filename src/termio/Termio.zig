@@ -80,13 +80,7 @@ thread_enter_state: ?*ThreadEnterState = null,
 /// Installed and removed under `renderer_state.mutex`, which the read thread
 /// holds for the whole of `processOutputLocked` -- so once a remove returns,
 /// no callback is in flight and none can start.
-pty_tee: ?PtyTee = null,
-
-/// ZENTTY FORK: absolute offset of the next pty byte to arrive, counted from
-/// surface creation. Advances by every byte we process WHETHER OR NOT a tee is
-/// installed, so offsets stay meaningful across install/uninstall cycles and a
-/// consumer can detect a gap rather than silently desyncing.
-pty_seq: u64 = 0,
+pty_tee: PtyTeeState = .{},
 
 /// ZENTTY FORK: see `pty_tee`. The callback receives the exact bytes the child
 /// wrote, after they have been applied to the terminal.
@@ -98,6 +92,22 @@ pub const PtyTee = struct {
         len: usize,
     ) callconv(.c) void,
     userdata: ?*anyopaque,
+};
+
+pub const PtyTeeState = struct {
+    callback: ?PtyTee = null,
+
+    /// Absolute offset of the next pty byte to arrive, counted from surface
+    /// creation. This advances even while no callback is installed.
+    sequence: u64 = 0,
+
+    fn deliver(self: *PtyTeeState, buf: []const u8) void {
+        const sequence = self.sequence;
+        self.sequence += buf.len;
+        if (self.callback) |tee| {
+            tee.callback(tee.userdata, sequence, buf.ptr, buf.len);
+        }
+    }
 };
 
 /// The state we need to keep around only until we enter the IO
@@ -742,11 +752,47 @@ fn processOutputLocked(self: *Termio, buf: []const u8) void {
     // stalls the renderer, and re-entering libghostty from it deadlocks on a
     // non-reentrant mutex. It must copy and enqueue, nothing more. The full
     // contract is documented on ghostty_surface_pty_tee_cb in include/ghostty.h.
-    const tee_seq = self.pty_seq;
-    self.pty_seq += buf.len;
-    if (self.pty_tee) |tee| {
-        tee.callback(tee.userdata, tee_seq, buf.ptr, buf.len);
-    }
+    self.pty_tee.deliver(buf);
+}
+
+test "pty tee preserves absolute sequence across detach and reattach" {
+    const Receipt = struct {
+        sequences: [2]u64 = undefined,
+        payloads: [2][4]u8 = undefined,
+        lengths: [2]usize = undefined,
+        count: usize = 0,
+
+        fn callback(
+            userdata: ?*anyopaque,
+            sequence: u64,
+            data: [*]const u8,
+            len: usize,
+        ) callconv(.c) void {
+            const self: *@This() = @ptrCast(@alignCast(userdata.?));
+            self.sequences[self.count] = sequence;
+            self.lengths[self.count] = len;
+            @memcpy(self.payloads[self.count][0..len], data[0..len]);
+            self.count += 1;
+        }
+    };
+
+    var receipt: Receipt = .{};
+    var tee: PtyTeeState = .{ .callback = .{
+        .callback = Receipt.callback,
+        .userdata = &receipt,
+    } };
+
+    tee.deliver("one");
+    tee.callback = null;
+    tee.deliver("skip");
+    tee.callback = .{ .callback = Receipt.callback, .userdata = &receipt };
+    tee.deliver("two");
+
+    try std.testing.expectEqual(@as(usize, 2), receipt.count);
+    try std.testing.expectEqualSlices(u64, &.{ 0, 7 }, &receipt.sequences);
+    try std.testing.expectEqualStrings("one", receipt.payloads[0][0..receipt.lengths[0]]);
+    try std.testing.expectEqualStrings("two", receipt.payloads[1][0..receipt.lengths[1]]);
+    try std.testing.expectEqual(@as(u64, 10), tee.sequence);
 }
 
 /// Sends a DSR response for the current color scheme to the pty.

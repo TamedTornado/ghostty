@@ -3645,7 +3645,7 @@ pub fn scrollCallback(
 pub fn setPtyTee(self: *Surface, tee: ?termio.Termio.PtyTee) void {
     self.renderer_state.mutex.lockUncancelable(global.io());
     defer self.renderer_state.mutex.unlock(global.io());
-    self.io.pty_tee = tee;
+    self.io.pty_tee.callback = tee;
 }
 
 /// This is called when the content scale of the surface changes. The surface
