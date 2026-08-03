@@ -10,12 +10,8 @@ const CoreApp = @import("App.zig");
 const Surface = @import("apprt/gtk/class/surface.zig").Surface;
 const gobject = @import("gobject");
 const global = @import("global.zig");
-const state = &global.state;
 
-const c = @cImport({
-    @cInclude("adwaita.h");
-    @cInclude("gtk/gtk.h");
-});
+const c = @import("adw_c");
 
 const Host = struct {
     core_app: *CoreApp,
@@ -44,14 +40,14 @@ const Host = struct {
     minimum_content_scale: f32 = 0,
 };
 
-pub fn main() !u8 {
-    try state.init();
-    defer state.deinit();
+pub fn main(minimal: std.process.Init.Minimal) !u8 {
+    try global.init(.{ .main = minimal });
+    defer global.deinit();
     if (c.g_getenv("GHOSTTY_EMBED_SPIKE_EPOLL") != null) {
         _ = global.xev.prefer(.epoll);
     }
 
-    const core_app = try CoreApp.create(state.alloc);
+    const core_app = try CoreApp.create(global.alloc());
     defer core_app.destroy();
 
     var runtime: apprt.App = undefined;

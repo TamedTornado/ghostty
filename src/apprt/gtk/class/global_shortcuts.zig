@@ -53,6 +53,10 @@ pub const GlobalShortcuts = extern struct {
     };
 
     const Private = struct {
+        /// The application that owns this helper. This is non-owning because
+        /// Application releases GlobalShortcuts during its own teardown.
+        application: *Application = undefined,
+
         /// The configuration that this is using.
         config: ?*Config = null,
 
@@ -82,6 +86,12 @@ pub const GlobalShortcuts = extern struct {
 
         pub var offset: c_int = 0;
     };
+
+    pub fn new(application: *Application) *Self {
+        const self = gobject.ext.newInstance(Self, .{});
+        self.private().application = application;
+        return self;
+    }
 
     /// A global shortcut that failed to bind or was revoked.
     /// Only valid for the duration of the signal emission.
@@ -142,7 +152,7 @@ pub const GlobalShortcuts = extern struct {
 
         // This is safe to call even if the winproto was already
         // deinitialized, which happens during application teardown.
-        Application.default().winproto().clearGlobalShortcuts();
+        priv.application.winproto().clearGlobalShortcuts();
 
         if (priv.dbus_connection) |dbus| {
             if (priv.response_subscription != 0) {
@@ -192,7 +202,7 @@ pub const GlobalShortcuts = extern struct {
 
         // Prefer a windowing protocol native mechanism over the
         // XDG desktop portal when available.
-        if (Application.default().winproto().bindGlobalShortcuts(self, config)) {
+        if (priv.application.winproto().bindGlobalShortcuts(self, config)) {
             log.debug("global shortcuts bound via winproto", .{});
             return;
         }
@@ -202,7 +212,7 @@ pub const GlobalShortcuts = extern struct {
 
         // Setup our new arena that we'll use for memory allocations.
         assert(priv.arena == null);
-        var arena: std.heap.ArenaAllocator = .init(Application.default().allocator());
+        var arena: std.heap.ArenaAllocator = .init(priv.application.allocator());
         errdefer arena.deinit();
         const alloc = arena.allocator();
 

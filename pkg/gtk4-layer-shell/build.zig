@@ -39,6 +39,11 @@ pub fn build(b: *std.Build) !void {
             else
                 link_system_libs_full[0..1],
         });
+        if (!b.systemIntegrationOption("gtk4-layer-shell", .{})) {
+            if (b.lazyDependency("gtk4_layer_shell", .{})) |upstream| {
+                headers.addIncludePath(upstream.path("include"));
+            }
+        }
         module.addImport("c", headers.mod);
     }
 
