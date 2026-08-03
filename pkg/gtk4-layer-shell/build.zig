@@ -39,7 +39,6 @@ pub fn build(b: *std.Build) !void {
             else
                 link_system_libs_full[0..1],
         });
-
         if (!b.systemIntegrationOption("gtk4-layer-shell", .{})) {
             // local deps (non-system layer-shell/wayland)
             const deps = try LocalDeps.get(b) orelse break :translate;
@@ -47,7 +46,6 @@ pub fn build(b: *std.Build) !void {
             headers.addIncludePath(deps.upstream.path("src"));
             headers.addIncludePath(deps.client_header_directory);
         }
-
         module.addImport("c", headers.mod);
     }
 

@@ -9,8 +9,8 @@ const apprt = @import("apprt.zig");
 const CoreApp = @import("App.zig");
 const gobject = @import("gobject");
 const Surface = @import("apprt/gtk/class/surface.zig").Surface;
-const state = &@import("global.zig").state;
-const xev = @import("global.zig").xev;
+const global = @import("global.zig");
+const xev = global.xev;
 
 const AsyncBackend = enum(c_int) {
     default = 0,
@@ -20,14 +20,19 @@ const AsyncBackend = enum(c_int) {
 
 var active_runtime: ?*Runtime = null;
 var runtime_was_created = false;
+var embed_argv = [_][*:0]u8{@constCast("ghostty-gtk-embed")};
 
 pub const Runtime = struct {
     core_app: *CoreApp,
     apprt_app: apprt.App,
 
     pub fn create(async_backend: AsyncBackend) !*Runtime {
-        try state.init();
-        errdefer state.deinit();
+        try global.init(.{ .c = .{
+            .argc = embed_argv.len,
+            .argv = &embed_argv,
+            .environ = .{ .block = .{ .slice = std.c.environ[0..environmentLength() :null] } },
+        } });
+        errdefer global.deinit();
 
         const backend_available = switch (async_backend) {
             .default => true,
@@ -39,7 +44,7 @@ pub const Runtime = struct {
         const self = try std.heap.c_allocator.create(Runtime);
         errdefer std.heap.c_allocator.destroy(self);
 
-        const core_app = try CoreApp.create(state.alloc);
+        const core_app = try CoreApp.create(global.alloc());
         errdefer core_app.destroy();
 
         self.* = .{
@@ -53,7 +58,7 @@ pub const Runtime = struct {
     pub fn destroy(self: *Runtime) void {
         self.apprt_app.terminate();
         self.core_app.destroy();
-        state.deinit();
+        global.deinit();
         std.heap.c_allocator.destroy(self);
     }
 
@@ -80,7 +85,7 @@ export fn ghostty_gtk_embed_runtime_new() ?*Runtime {
 export fn ghostty_gtk_embed_runtime_new_with_async_backend(
     backend: c_int,
 ) ?*Runtime {
-    const value = std.meta.intToEnum(AsyncBackend, backend) catch return null;
+    const value = std.enums.fromInt(AsyncBackend, backend) orelse return null;
     return createRuntime(value);
 }
 
@@ -93,6 +98,12 @@ fn createRuntime(async_backend: AsyncBackend) ?*Runtime {
     active_runtime = runtime;
     runtime_was_created = true;
     return runtime;
+}
+
+fn environmentLength() usize {
+    var len: usize = 0;
+    while (std.c.environ[len]) |_| : (len += 1) {}
+    return len;
 }
 
 export fn ghostty_gtk_embed_runtime_free(runtime: ?*Runtime) void {

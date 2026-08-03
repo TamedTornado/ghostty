@@ -413,7 +413,7 @@ pub const Application = extern struct {
             .winproto = wp,
             .css_provider = css_provider,
             .custom_css_providers = .empty,
-            .global_shortcuts = gobject.ext.newInstance(GlobalShortcuts, .{}),
+            .global_shortcuts = GlobalShortcuts.new(self),
             .saved_language = saved_language,
             .open_uri = .init(rt_app),
         };
