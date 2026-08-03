@@ -130,6 +130,12 @@ export fn ghostty_gtk_embed_surface_grab_focus(surface: ?*anyopaque) void {
     value.grabFocus();
 }
 
+export fn ghostty_gtk_embed_surface_close(surface: ?*anyopaque) bool {
+    const value = getSurface(surface) orelse return false;
+    value.deinitCore();
+    return true;
+}
+
 export fn ghostty_gtk_embed_surface_send_text(
     surface: ?*anyopaque,
     text: ?[*:0]const u8,
