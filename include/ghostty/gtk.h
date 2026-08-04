@@ -2,6 +2,7 @@
 #define GHOSTTY_GTK_H
 
 #include <stdbool.h>
+#include <stddef.h>
 
 #ifdef __cplusplus
 extern "C" {
@@ -67,6 +68,16 @@ void ghostty_gtk_embed_surface_grab_focus(GtkWidget *surface);
 bool ghostty_gtk_embed_surface_send_text(
     GtkWidget *surface,
     const char *text
+);
+
+// Parses and invokes a Ghostty binding action on the terminal surface. The
+// action bytes are borrowed for this call and do not need a trailing NUL.
+// Returns false for an invalid/uninitialized surface, invalid bytes, an
+// unknown action, or a terminal-side action failure.
+bool ghostty_gtk_embed_surface_binding_action(
+    GtkWidget *surface,
+    const char *action,
+    size_t action_len
 );
 
 // Starts an asynchronous paste from the standard GTK clipboard. Completion is

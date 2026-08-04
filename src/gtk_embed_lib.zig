@@ -9,6 +9,7 @@ const apprt = @import("apprt.zig");
 const CoreApp = @import("App.zig");
 const gobject = @import("gobject");
 const Surface = @import("apprt/gtk/class/surface.zig").Surface;
+const Binding = @import("input/Binding.zig");
 const global = @import("global.zig");
 const xev = global.xev;
 
@@ -156,6 +157,22 @@ export fn ghostty_gtk_embed_surface_send_text(
     const input = std.mem.span(text orelse return false);
     core.textCallback(input) catch return false;
     return true;
+}
+
+/// Parses and invokes one of Ghostty's public binding actions on an embedded
+/// terminal surface. This keeps host applications on the same command path as
+/// Ghostty's own keybindings instead of duplicating terminal behavior.
+export fn ghostty_gtk_embed_surface_binding_action(
+    surface: ?*anyopaque,
+    action_ptr: ?[*]const u8,
+    action_len: usize,
+) bool {
+    const value = getSurface(surface) orelse return false;
+    const core = value.core() orelse return false;
+    const ptr = action_ptr orelse return false;
+    const action_text = ptr[0..action_len];
+    const action = Binding.Action.parse(action_text) catch return false;
+    return core.performBindingAction(action) catch false;
 }
 
 export fn ghostty_gtk_embed_surface_request_paste(
