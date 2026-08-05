@@ -743,6 +743,7 @@ pub const Surface = extern struct {
             command: ?configpkg.Command = null,
             shell_integration: ?configpkg.Config.ShellIntegration = null,
             working_directory: ?[:0]const u8 = null,
+            environment: std.ArrayListUnmanaged([:0]const u8) = .empty,
 
             pub const none: @This() = .{};
         } = .none,
@@ -755,6 +756,7 @@ pub const Surface = extern struct {
         shell_integration: ?configpkg.Config.ShellIntegration = null,
         working_directory: ?[:0]const u8 = null,
         title: ?[:0]const u8 = null,
+        environment: []const [:0]const u8 = &.{},
 
         pub const none: @This() = .{};
     };
@@ -780,8 +782,26 @@ pub const Surface = extern struct {
             .command = if (overrides.command) |c| c.clone(alloc) catch null else null,
             .shell_integration = overrides.shell_integration,
             .working_directory = if (overrides.working_directory) |wd| alloc.dupeZ(u8, wd) catch null else null,
+            .environment = cloneEnvironmentOverrides(alloc, overrides.environment),
         };
         return self;
+    }
+
+    fn cloneEnvironmentOverrides(
+        alloc: Allocator,
+        environment: []const [:0]const u8,
+    ) std.ArrayListUnmanaged([:0]const u8) {
+        var result: std.ArrayListUnmanaged([:0]const u8) = .empty;
+        result.ensureTotalCapacity(alloc, environment.len) catch return result;
+        for (environment) |entry| {
+            const copy = alloc.dupeZ(u8, entry) catch {
+                for (result.items) |value| alloc.free(value);
+                result.deinit(alloc);
+                return .empty;
+            };
+            result.appendAssumeCapacity(copy);
+        }
+        return result;
     }
 
     /// The Ghostty runtime that owns this surface.
@@ -1996,6 +2016,8 @@ pub const Surface = extern struct {
             alloc.free(wd);
             priv.overrides.working_directory = null;
         }
+        for (priv.overrides.environment.items) |entry| alloc.free(entry);
+        priv.overrides.environment.deinit(alloc);
 
         // Clean up key sequence and key table state
         for (priv.key_sequence.items) |s| alloc.free(s);
@@ -3562,6 +3584,12 @@ pub const Surface = extern struct {
             var wd_val: configpkg.WorkingDirectory = .{ .path = try config_alloc.dupe(u8, wd) };
             try wd_val.finalize(config_alloc);
             config.@"working-directory" = wd_val;
+        }
+        for (priv.overrides.environment.items) |entry| {
+            config.env.parseCLI(config.arenaAlloc(), entry) catch |err| switch (err) {
+                error.ValueRequired => unreachable,
+                error.OutOfMemory => return error.OutOfMemory,
+            };
         }
 
         // Properties that can impact surface init

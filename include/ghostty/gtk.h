@@ -22,6 +22,8 @@ typedef struct {
     const char *command;
     const char *title;
     const char *working_directory;
+    const char *const *environment;
+    size_t environment_count;
 } ghostty_gtk_embed_surface_options_t;
 
 // Every function in this API must be called from the GTK main thread.
@@ -55,9 +57,12 @@ GtkWidget *ghostty_gtk_embed_surface_new(
 );
 
 // Returns a new GhosttySurface using versioned, copied construction options.
-// struct_size must be at least sizeof(ghostty_gtk_embed_surface_options_t). String
-// fields may be null. working_directory selects the child process directory
-// without requiring the embedding host to synthesize a shell command.
+// struct_size must include fields through working_directory; appended fields
+// are read only when struct_size includes them. String fields may be null.
+// working_directory selects the child process directory without requiring the
+// embedding host to synthesize a shell command. environment is a copied array
+// of environment_count non-null KEY=VALUE strings (at most 128); it augments
+// and overrides the child environment for this surface only.
 GtkWidget *ghostty_gtk_embed_surface_new_with_options(
     ghostty_gtk_embed_runtime_t *runtime,
     const ghostty_gtk_embed_surface_options_t *options
