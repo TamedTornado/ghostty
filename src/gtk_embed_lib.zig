@@ -19,6 +19,13 @@ const AsyncBackend = enum(c_int) {
     io_uring = 2,
 };
 
+const SurfaceOptions = extern struct {
+    struct_size: usize,
+    command: ?[*:0]const u8,
+    title: ?[*:0]const u8,
+    working_directory: ?[*:0]const u8,
+};
+
 var active_runtime: ?*Runtime = null;
 var runtime_was_created = false;
 var embed_argv = [_][*:0]u8{@constCast("ghostty-gtk-embed")};
@@ -71,10 +78,12 @@ pub const Runtime = struct {
         self: *Runtime,
         command: ?[:0]const u8,
         title: ?[:0]const u8,
+        working_directory: ?[:0]const u8,
     ) *Surface {
         return Surface.newWithApplication(self.apprt_app.app, .{
             .command = if (command) |value| .{ .shell = value } else null,
             .title = title,
+            .working_directory = working_directory,
         });
     }
 };
@@ -134,7 +143,27 @@ export fn ghostty_gtk_embed_surface_new(
     return @ptrCast(value.newSurface(
         if (command) |v| std.mem.span(v) else null,
         if (title) |v| std.mem.span(v) else null,
+        null,
     ));
+}
+
+export fn ghostty_gtk_embed_surface_new_with_options(
+    runtime: ?*Runtime,
+    options: ?*const SurfaceOptions,
+) ?*anyopaque {
+    const value = runtime orelse return null;
+    if (active_runtime != value) return null;
+    const opts = options orelse return null;
+    if (!surfaceOptionsValid(opts)) return null;
+    return @ptrCast(value.newSurface(
+        if (opts.command) |v| std.mem.span(v) else null,
+        if (opts.title) |v| std.mem.span(v) else null,
+        if (opts.working_directory) |v| std.mem.span(v) else null,
+    ));
+}
+
+fn surfaceOptionsValid(options: *const SurfaceOptions) bool {
+    return options.struct_size >= @sizeOf(SurfaceOptions);
 }
 
 export fn ghostty_gtk_embed_surface_grab_focus(surface: ?*anyopaque) void {
@@ -187,4 +216,16 @@ fn getSurface(surface: ?*anyopaque) ?*Surface {
         surface orelse return null,
     ));
     return gobject.ext.cast(Surface, instance);
+}
+
+test "embedding surface options reject truncated ABI and accept current layout" {
+    var options: SurfaceOptions = .{
+        .struct_size = @sizeOf(SurfaceOptions),
+        .command = null,
+        .title = null,
+        .working_directory = "/tmp",
+    };
+    try std.testing.expect(surfaceOptionsValid(&options));
+    options.struct_size = @offsetOf(SurfaceOptions, "working_directory");
+    try std.testing.expect(!surfaceOptionsValid(&options));
 }
