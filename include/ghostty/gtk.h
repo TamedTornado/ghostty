@@ -17,6 +17,13 @@ typedef enum {
     GHOSTTY_GTK_EMBED_ASYNC_IO_URING = 2,
 } ghostty_gtk_embed_async_backend_t;
 
+typedef struct {
+    size_t struct_size;
+    const char *command;
+    const char *title;
+    const char *working_directory;
+} ghostty_gtk_embed_surface_options_t;
+
 // Every function in this API must be called from the GTK main thread.
 
 // Creates the Ghostty core used by embedded GTK terminal surfaces. A process
@@ -45,6 +52,15 @@ GtkWidget *ghostty_gtk_embed_surface_new(
     ghostty_gtk_embed_runtime_t *runtime,
     const char *command,
     const char *title
+);
+
+// Returns a new GhosttySurface using versioned, copied construction options.
+// struct_size must be at least sizeof(ghostty_gtk_embed_surface_options_t). String
+// fields may be null. working_directory selects the child process directory
+// without requiring the embedding host to synthesize a shell command.
+GtkWidget *ghostty_gtk_embed_surface_new_with_options(
+    ghostty_gtk_embed_runtime_t *runtime,
+    const ghostty_gtk_embed_surface_options_t *options
 );
 
 /**
