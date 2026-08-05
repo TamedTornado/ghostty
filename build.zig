@@ -85,6 +85,10 @@ pub fn build(b: *std.Build) !void {
         "gtk-embed-lib",
         "Build the experimental GTK embedding library",
     );
+    const gtk_embed_lib_test_step = b.step(
+        "gtk-embed-lib-test",
+        "Test the experimental GTK embedding library",
+    );
     const gtk_embed_spike_valgrind_step = b.step(
         "gtk-embed-spike-valgrind",
         "Run the alternate GTK embedding host under Valgrind",
@@ -127,6 +131,18 @@ pub fn build(b: *std.Build) !void {
             );
         }
         _ = try deps.add(gtk_embed_lib);
+        const gtk_embed_tests = b.addTest(.{
+            .name = "ghostty-gtk-embed-test",
+            .filters = test_filters,
+            .root_module = b.createModule(.{
+                .root_source_file = b.path("src/gtk_embed_lib.zig"),
+                .target = config.target,
+                .optimize = .Debug,
+            }),
+            .use_llvm = true,
+        });
+        _ = try deps.add(gtk_embed_tests);
+        gtk_embed_lib_test_step.dependOn(&b.addRunArtifact(gtk_embed_tests).step);
         const install_gtk_embed_lib = b.addInstallArtifact(gtk_embed_lib, .{});
         const install_gtk_embed_header = b.addInstallHeaderFile(
             b.path("include/ghostty/gtk.h"),

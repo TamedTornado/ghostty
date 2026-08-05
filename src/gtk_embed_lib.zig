@@ -24,6 +24,8 @@ const SurfaceOptions = extern struct {
     command: ?[*:0]const u8,
     title: ?[*:0]const u8,
     working_directory: ?[*:0]const u8,
+    environment: ?[*]const ?[*:0]const u8,
+    environment_count: usize,
 };
 
 var active_runtime: ?*Runtime = null;
@@ -79,11 +81,17 @@ pub const Runtime = struct {
         command: ?[:0]const u8,
         title: ?[:0]const u8,
         working_directory: ?[:0]const u8,
+        environment: []const ?[*:0]const u8,
     ) *Surface {
+        var environment_spans: [128][:0]const u8 = undefined;
+        for (environment, 0..) |entry, index| {
+            environment_spans[index] = std.mem.span(entry.?);
+        }
         return Surface.newWithApplication(self.apprt_app.app, .{
             .command = if (command) |value| .{ .shell = value } else null,
             .title = title,
             .working_directory = working_directory,
+            .environment = environment_spans[0..environment.len],
         });
     }
 };
@@ -144,6 +152,7 @@ export fn ghostty_gtk_embed_surface_new(
         if (command) |v| std.mem.span(v) else null,
         if (title) |v| std.mem.span(v) else null,
         null,
+        &.{},
     ));
 }
 
@@ -154,16 +163,32 @@ export fn ghostty_gtk_embed_surface_new_with_options(
     const value = runtime orelse return null;
     if (active_runtime != value) return null;
     const opts = options orelse return null;
-    if (!surfaceOptionsValid(opts)) return null;
+    const environment = surfaceOptionsEnvironment(opts) orelse return null;
     return @ptrCast(value.newSurface(
         if (opts.command) |v| std.mem.span(v) else null,
         if (opts.title) |v| std.mem.span(v) else null,
         if (opts.working_directory) |v| std.mem.span(v) else null,
+        environment,
     ));
 }
 
 fn surfaceOptionsValid(options: *const SurfaceOptions) bool {
-    return options.struct_size >= @sizeOf(SurfaceOptions);
+    return options.struct_size >= @offsetOf(SurfaceOptions, "environment");
+}
+
+fn surfaceOptionsEnvironment(options: *const SurfaceOptions) ?[]const ?[*:0]const u8 {
+    if (!surfaceOptionsValid(options)) return null;
+    if (options.struct_size < @sizeOf(SurfaceOptions)) return &.{};
+    if (options.environment_count > 128) return null;
+    if (options.environment_count == 0) return &.{};
+    const environment = options.environment orelse return null;
+    const entries = environment[0..options.environment_count];
+    for (entries) |entry| {
+        const value = std.mem.span(entry orelse return null);
+        const equals = std.mem.indexOfScalar(u8, value, '=') orelse return null;
+        if (equals == 0) return null;
+    }
+    return entries;
 }
 
 export fn ghostty_gtk_embed_surface_grab_focus(surface: ?*anyopaque) void {
@@ -224,8 +249,36 @@ test "embedding surface options reject truncated ABI and accept current layout" 
         .command = null,
         .title = null,
         .working_directory = "/tmp",
+        .environment = null,
+        .environment_count = 0,
     };
     try std.testing.expect(surfaceOptionsValid(&options));
     options.struct_size = @offsetOf(SurfaceOptions, "working_directory");
     try std.testing.expect(!surfaceOptionsValid(&options));
+}
+
+test "embedding surface options preserve old ABI and validate environment extension" {
+    var environment = [_]?[*:0]const u8{ "ZENTTY_PANE_ID=pane-a", "ZENTTY_PANE_TOKEN=secret" };
+    var options: SurfaceOptions = .{
+        .struct_size = @sizeOf(SurfaceOptions),
+        .command = null,
+        .title = null,
+        .working_directory = null,
+        .environment = &environment,
+        .environment_count = environment.len,
+    };
+    try std.testing.expectEqual(@as(usize, 2), surfaceOptionsEnvironment(&options).?.len);
+    options.struct_size = @offsetOf(SurfaceOptions, "environment");
+    try std.testing.expect(surfaceOptionsValid(&options));
+    try std.testing.expectEqual(@as(usize, 0), surfaceOptionsEnvironment(&options).?.len);
+    options.struct_size = @sizeOf(SurfaceOptions);
+    options.environment_count = 129;
+    try std.testing.expect(surfaceOptionsEnvironment(&options) == null);
+    options.environment_count = 1;
+    environment[0] = "missing-equals";
+    try std.testing.expect(surfaceOptionsEnvironment(&options) == null);
+    environment[0] = null;
+    try std.testing.expect(surfaceOptionsEnvironment(&options) == null);
+    options.environment = null;
+    try std.testing.expect(surfaceOptionsEnvironment(&options) == null);
 }
