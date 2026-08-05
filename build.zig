@@ -143,13 +143,12 @@ pub fn build(b: *std.Build) !void {
             .name = "ghostty-gtk-embed-test",
             .filters = test_filters,
             .root_module = b.createModule(.{
-                .root_source_file = b.path("src/gtk_embed_lib.zig"),
+                .root_source_file = b.path("src/gtk_embed_options.zig"),
                 .target = config.target,
                 .optimize = .Debug,
             }),
             .use_llvm = true,
         });
-        _ = try deps.add(gtk_embed_tests);
         gtk_embed_lib_test_step.dependOn(&b.addRunArtifact(gtk_embed_tests).step);
         const install_gtk_embed_lib = b.addInstallArtifact(gtk_embed_lib, .{});
         const install_gtk_embed_header = b.addInstallHeaderFile(
