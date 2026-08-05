@@ -3,6 +3,7 @@
 
 #include <stdbool.h>
 #include <stddef.h>
+#include <stdint.h>
 
 #ifdef __cplusplus
 extern "C" {
@@ -16,6 +17,16 @@ typedef enum {
     GHOSTTY_GTK_EMBED_ASYNC_EPOLL = 1,
     GHOSTTY_GTK_EMBED_ASYNC_IO_URING = 2,
 } ghostty_gtk_embed_async_backend_t;
+
+typedef uint32_t ghostty_gtk_embed_text_extent_t;
+#define GHOSTTY_GTK_EMBED_TEXT_VIEWPORT ((ghostty_gtk_embed_text_extent_t) 0)
+#define GHOSTTY_GTK_EMBED_TEXT_SCREEN ((ghostty_gtk_embed_text_extent_t) 1)
+
+typedef void (*ghostty_gtk_embed_text_callback_t)(
+    const char *text,
+    size_t text_len,
+    void *userdata
+);
 
 typedef struct {
     size_t struct_size;
@@ -99,6 +110,18 @@ bool ghostty_gtk_embed_surface_binding_action(
     GtkWidget *surface,
     const char *action,
     size_t action_len
+);
+
+// Reads plain terminal text synchronously and invokes callback exactly once
+// with bytes borrowed for the duration of the callback. SCREEN includes
+// scrollback; VIEWPORT includes only the currently visible terminal rows.
+// Returns false without invoking callback for invalid arguments, an
+// uninitialized surface, or a terminal-side read failure.
+bool ghostty_gtk_embed_surface_read_text(
+    GtkWidget *surface,
+    ghostty_gtk_embed_text_extent_t extent,
+    ghostty_gtk_embed_text_callback_t callback,
+    void *userdata
 );
 
 // Starts an asynchronous paste from the standard GTK clipboard. Completion is

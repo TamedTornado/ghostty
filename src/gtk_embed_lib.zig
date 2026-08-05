@@ -11,6 +11,7 @@ const gobject = @import("gobject");
 const Surface = @import("apprt/gtk/class/surface.zig").Surface;
 const Binding = @import("input/Binding.zig");
 const global = @import("global.zig");
+const terminal = @import("terminal/main.zig");
 const xev = global.xev;
 const surface_options = @import("gtk_embed_options.zig");
 
@@ -19,6 +20,13 @@ const AsyncBackend = enum(c_int) {
     epoll = 1,
     io_uring = 2,
 };
+
+const TextExtent = enum(u32) {
+    viewport = 0,
+    screen = 1,
+};
+
+const TextCallback = *const fn ([*]const u8, usize, ?*anyopaque) callconv(.c) void;
 
 const SurfaceOptions = surface_options.SurfaceOptions;
 
@@ -202,6 +210,47 @@ export fn ghostty_gtk_embed_surface_binding_action(
     const action_text = ptr[0..action_len];
     const action = Binding.Action.parse(action_text) catch return false;
     return core.performBindingAction(action) catch false;
+}
+
+export fn ghostty_gtk_embed_surface_read_text(
+    surface: ?*anyopaque,
+    extent_raw: u32,
+    callback: ?TextCallback,
+    userdata: ?*anyopaque,
+) bool {
+    const value = getSurface(surface) orelse return false;
+    const core = value.core() orelse return false;
+    const extent = std.enums.fromInt(TextExtent, extent_raw) orelse return false;
+    const invoke = callback orelse return false;
+
+    var text = text: {
+        core.renderer_state.mutex.lockUncancelable(global.io());
+        defer core.renderer_state.mutex.unlock(global.io());
+        break :text readTextLocked(core, extent) catch return false;
+    };
+    defer text.deinit(global.alloc());
+
+    invoke(text.text.ptr, text.text.len, userdata);
+    return true;
+}
+
+fn readTextLocked(
+    core: *@import("Surface.zig"),
+    extent: TextExtent,
+) !@import("Surface.zig").Text {
+    const screen = core.io.terminal.screens.active;
+    const tag: terminal.point.Tag = switch (extent) {
+        .viewport => .viewport,
+        .screen => .screen,
+    };
+    const selection: terminal.Selection = .{
+        .bounds = .{ .untracked = .{
+            .start = screen.pages.getTopLeft(tag),
+            .end = screen.pages.getBottomRight(tag) orelse return error.EmptyScreen,
+        } },
+        .rectangle = false,
+    };
+    return core.dumpTextLocked(global.alloc(), selection);
 }
 
 export fn ghostty_gtk_embed_surface_request_paste(
