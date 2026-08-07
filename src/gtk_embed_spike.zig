@@ -10,6 +10,7 @@ const CoreApp = @import("App.zig");
 const Surface = @import("apprt/gtk/class/surface.zig").Surface;
 const gobject = @import("gobject");
 const global = @import("global.zig");
+const terminal = @import("terminal/main.zig");
 
 const c = @import("adw_c");
 
@@ -31,6 +32,7 @@ const Host = struct {
     clipboard_write: bool = false,
     clipboard_read: bool = false,
     clipboard_acknowledged: bool = false,
+    progress_report: bool = false,
     focus_index: usize = 0,
     focus_confirmed: usize = 0,
     resize_width_before: c_int = 0,
@@ -97,13 +99,14 @@ pub fn main(minimal: std.process.Init.Minimal) !u8 {
                 !host.clipboard_write or
                 !host.clipboard_read or
                 !host.clipboard_acknowledged or
+                !host.progress_report or
                 host.focus_confirmed != host.expected_surfaces or
                 !host.resize_requested or
                 !host.resize_observed or
                 host.valid_content_scales != host.expected_surfaces)))
     {
         std.debug.print(
-            "embed-spike: FAIL default_plain={} initialized={}/{} child_exited={}/{} tick_failed={} keyboard={}/{} clipboard={}/{}/{} focus={}/{} resize={}/{} scales={}/{}\n",
+            "embed-spike: FAIL default_plain={} initialized={}/{} child_exited={}/{} tick_failed={} keyboard={}/{} clipboard={}/{}/{} progress={} focus={}/{} resize={}/{} scales={}/{}\n",
             .{
                 host.default_is_plain_host,
                 host.surfaces_initialized,
@@ -116,6 +119,7 @@ pub fn main(minimal: std.process.Init.Minimal) !u8 {
                 host.clipboard_write,
                 host.clipboard_read,
                 host.clipboard_acknowledged,
+                host.progress_report,
                 host.focus_confirmed,
                 host.expected_surfaces,
                 host.resize_requested,
@@ -150,7 +154,7 @@ fn activate(app: *c.GtkApplication, userdata: ?*anyopaque) callconv(.c) void {
                 0 => "value=$(dd bs=1 count=22 2>/dev/null); [ \"$value\" = ghostty-embed-keyboard ] || sleep 30; IFS= read -r blank; printf '\\033]2;ghostty-keyboard-ack\\a'; sleep 1",
                 1 => "value=$(dd bs=1 count=23 2>/dev/null); if [ \"$value\" = ghostty-embed-clipboard ]; then printf '\\033]2;ghostty-clipboard-ack\\a'; else printf '\\033]2;ghostty-clipboard-fail\\a'; fi; sleep 1",
                 2 => "trap 'exit 0' WINCH; while :; do sleep 1; done",
-                3 => "printf '\\033]52;c;Z2hvc3R0eS1lbWJlZC1jbGlwYm9hcmQ=\\a'; sleep 2",
+                3 => "printf '\\033]52;c;Z2hvc3R0eS1lbWJlZC1jbGlwYm9hcmQ=\\a\\033]9;4;1;73\\a'; sleep 2",
                 else => "sleep 2",
             } },
             .title = "Embedded Ghostty surface",
@@ -193,6 +197,13 @@ fn activate(app: *c.GtkApplication, userdata: ?*anyopaque) callconv(.c) void {
                 surface,
                 *Host,
                 clipboardRead,
+                host,
+                .{},
+            );
+            _ = Surface.signals.@"progress-report".connect(
+                surface,
+                *Host,
+                progressReport,
                 host,
                 .{},
             );
@@ -275,6 +286,19 @@ fn clipboardRead(surface: *Surface, host: *Host) callconv(.c) void {
         };
     }
     std.debug.print("embed-spike: clipboard read observed\n", .{});
+}
+
+fn progressReport(
+    surface: *Surface,
+    state: c_int,
+    progress: c_int,
+    host: *Host,
+) callconv(.c) void {
+    if (surface != host.surfaces[3] or
+        state != @intFromEnum(terminal.osc.Command.ProgressReport.State.set) or
+        progress != 73) return;
+    host.progress_report = true;
+    std.debug.print("embed-spike: progress report observed state={} progress={}\n", .{ state, progress });
 }
 
 fn titleChanged(surface: *Surface, _: *gobject.ParamSpec, host: *Host) callconv(.c) void {
