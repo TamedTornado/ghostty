@@ -517,6 +517,25 @@ pub const Surface = extern struct {
             );
         };
 
+        /// Emitted for every OSC 9;4 progress report received by the
+        /// terminal. The first parameter is a `GHOSTTY_PROGRESS_STATE_*`
+        /// value and the second is -1 when no percentage was supplied or a
+        /// value from 0 through 100 otherwise.
+        ///
+        /// Embedders can use this to reconcile host-level activity without
+        /// scraping terminal titles. The signal is emitted independently of
+        /// whether Ghostty's own progress overlay is enabled.
+        pub const @"progress-report" = struct {
+            pub const name = "progress-report";
+            pub const connect = impl.connect;
+            const impl = gobject.ext.defineSignal(
+                name,
+                Self,
+                &.{ c_int, c_int },
+                void,
+            );
+        };
+
         /// Emitted just prior to the context menu appearing.
         pub const menu = struct {
             pub const name = "menu";
@@ -1090,6 +1109,14 @@ pub const Surface = extern struct {
         value: terminal.osc.Command.ProgressReport,
     ) void {
         const priv = self.private();
+
+        const report = value.cval();
+        signals.@"progress-report".impl.emit(
+            self,
+            null,
+            .{ report.state, report.progress },
+            null,
+        );
 
         // No matter what, we stop the timer because if we're removing
         // then we're done and otherwise we restart it.
@@ -4020,6 +4047,7 @@ pub const Surface = extern struct {
             signals.init.impl.register(.{});
             signals.menu.impl.register(.{});
             signals.@"present-request".impl.register(.{});
+            signals.@"progress-report".impl.register(.{});
             signals.@"toggle-fullscreen".impl.register(.{});
             signals.@"toggle-maximize".impl.register(.{});
 
