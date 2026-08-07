@@ -8,6 +8,7 @@ const std = @import("std");
 const apprt = @import("apprt.zig");
 const CoreApp = @import("App.zig");
 const gobject = @import("gobject");
+const gtk = @import("gtk");
 const Surface = @import("apprt/gtk/class/surface.zig").Surface;
 const Binding = @import("input/Binding.zig");
 const global = @import("global.zig");
@@ -111,6 +112,10 @@ export fn ghostty_gtk_embed_runtime_new_with_async_backend(
 
 fn createRuntime(async_backend: AsyncBackend) ?*Runtime {
     if (runtime_was_created) return null;
+    if (gtk.isInitialized() != 0) {
+        std.log.err("GTK embedding runtime must be created before GTK initialization", .{});
+        return null;
+    }
     const runtime = Runtime.create(async_backend) catch |err| {
         std.log.err("failed to initialize GTK embedding runtime err={}", .{err});
         return null;
