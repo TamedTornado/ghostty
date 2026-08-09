@@ -6,6 +6,7 @@ GHOSTTY_GTK_EMBED_1.0 {
         ghostty_gtk_embed_runtime_tick;
         ghostty_gtk_embed_surface_grab_focus;
         ghostty_gtk_embed_surface_binding_action;
+        ghostty_gtk_embed_surface_cell_size;
         ghostty_gtk_embed_surface_close;
         ghostty_gtk_embed_surface_new;
         ghostty_gtk_embed_surface_new_with_options;
