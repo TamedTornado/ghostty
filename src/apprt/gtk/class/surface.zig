@@ -535,6 +535,23 @@ pub const Surface = extern struct {
             );
         };
 
+        /// Emitted when the terminal requests a desktop notification. The
+        /// parameters are the decoded OSC notification title and body.
+        ///
+        /// This is emitted after core notification policy and rate limiting
+        /// have accepted the request, so embedders observe the same requests
+        /// that reach the GTK application notification path.
+        pub const @"desktop-notification" = struct {
+            pub const name = "desktop-notification";
+            pub const connect = impl.connect;
+            const impl = gobject.ext.defineSignal(
+                name,
+                Self,
+                &.{ [*:0]const u8, [*:0]const u8 },
+                void,
+            );
+        };
+
         /// Emitted just prior to the context menu appearing.
         pub const menu = struct {
             pub const name = "menu";
@@ -1826,6 +1843,13 @@ pub const Surface = extern struct {
             log.warn("can't send notification because there is no core surface", .{});
             return;
         };
+
+        signals.@"desktop-notification".impl.emit(
+            self,
+            null,
+            .{ title.ptr, body.ptr },
+            null,
+        );
 
         const t = switch (title.len) {
             0 => "Ghostty",
@@ -3813,6 +3837,7 @@ pub const Surface = extern struct {
             signals.@"close-request".impl.register(.{});
             signals.@"clipboard-read".impl.register(.{});
             signals.@"clipboard-write".impl.register(.{});
+            signals.@"desktop-notification".impl.register(.{});
             signals.init.impl.register(.{});
             signals.menu.impl.register(.{});
             signals.@"present-request".impl.register(.{});
