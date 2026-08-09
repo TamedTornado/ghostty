@@ -37,6 +37,11 @@ typedef struct {
     size_t environment_count;
 } ghostty_gtk_embed_surface_options_t;
 
+typedef struct {
+    double width;
+    double height;
+} ghostty_gtk_embed_cell_size_t;
+
 // Every function in this API must be called from the GTK main thread.
 
 // Creates the Ghostty core used by embedded GTK terminal surfaces. A process
@@ -110,6 +115,15 @@ bool ghostty_gtk_embed_surface_binding_action(
     GtkWidget *surface,
     const char *action,
     size_t action_len
+);
+
+// Returns the rendered terminal cell dimensions in logical pixels. The
+// values reflect the surface's active font metrics and may change after
+// configuration or scale changes. Returns false for invalid arguments or an
+// uninitialized surface and leaves cell_size unchanged.
+bool ghostty_gtk_embed_surface_cell_size(
+    GtkWidget *surface,
+    ghostty_gtk_embed_cell_size_t *cell_size
 );
 
 // Reads plain terminal text synchronously and invokes callback exactly once

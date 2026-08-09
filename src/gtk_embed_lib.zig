@@ -29,6 +29,11 @@ const TextExtent = enum(u32) {
 
 const TextCallback = *const fn ([*]const u8, usize, ?*anyopaque) callconv(.c) void;
 
+const CellSize = extern struct {
+    width: f64,
+    height: f64,
+};
+
 const SurfaceOptions = surface_options.SurfaceOptions;
 
 var active_runtime: ?*Runtime = null;
@@ -215,6 +220,24 @@ export fn ghostty_gtk_embed_surface_binding_action(
     const action_text = ptr[0..action_len];
     const action = Binding.Action.parse(action_text) catch return false;
     return core.performBindingAction(action) catch false;
+}
+
+export fn ghostty_gtk_embed_surface_cell_size(
+    surface: ?*anyopaque,
+    output: ?*CellSize,
+) bool {
+    const value = getSurface(surface) orelse return false;
+    const core = value.core() orelse return false;
+    const result = output orelse return false;
+    const size = core.size.cell;
+    if (size.width == 0 or size.height == 0) return false;
+    const scale = value.getContentScale();
+    if (scale.x <= 0 or scale.y <= 0) return false;
+    result.* = .{
+        .width = @as(f64, @floatFromInt(size.width)) / scale.x,
+        .height = @as(f64, @floatFromInt(size.height)) / scale.y,
+    };
+    return true;
 }
 
 export fn ghostty_gtk_embed_surface_read_text(
