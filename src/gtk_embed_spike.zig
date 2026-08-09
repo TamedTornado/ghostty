@@ -33,6 +33,7 @@ const Host = struct {
     clipboard_read: bool = false,
     clipboard_acknowledged: bool = false,
     progress_report: bool = false,
+    desktop_notification: bool = false,
     focus_index: usize = 0,
     focus_confirmed: usize = 0,
     resize_width_before: c_int = 0,
@@ -100,13 +101,14 @@ pub fn main(minimal: std.process.Init.Minimal) !u8 {
                 !host.clipboard_read or
                 !host.clipboard_acknowledged or
                 !host.progress_report or
+                !host.desktop_notification or
                 host.focus_confirmed != host.expected_surfaces or
                 !host.resize_requested or
                 !host.resize_observed or
                 host.valid_content_scales != host.expected_surfaces)))
     {
         std.debug.print(
-            "embed-spike: FAIL default_plain={} initialized={}/{} child_exited={}/{} tick_failed={} keyboard={}/{} clipboard={}/{}/{} progress={} focus={}/{} resize={}/{} scales={}/{}\n",
+            "embed-spike: FAIL default_plain={} initialized={}/{} child_exited={}/{} tick_failed={} keyboard={}/{} clipboard={}/{}/{} progress={} notification={} focus={}/{} resize={}/{} scales={}/{}\n",
             .{
                 host.default_is_plain_host,
                 host.surfaces_initialized,
@@ -120,6 +122,7 @@ pub fn main(minimal: std.process.Init.Minimal) !u8 {
                 host.clipboard_read,
                 host.clipboard_acknowledged,
                 host.progress_report,
+                host.desktop_notification,
                 host.focus_confirmed,
                 host.expected_surfaces,
                 host.resize_requested,
@@ -154,7 +157,7 @@ fn activate(app: *c.GtkApplication, userdata: ?*anyopaque) callconv(.c) void {
                 0 => "value=$(dd bs=1 count=22 2>/dev/null); [ \"$value\" = ghostty-embed-keyboard ] || sleep 30; IFS= read -r blank; printf '\\033]2;ghostty-keyboard-ack\\a'; sleep 1",
                 1 => "value=$(dd bs=1 count=23 2>/dev/null); if [ \"$value\" = ghostty-embed-clipboard ]; then printf '\\033]2;ghostty-clipboard-ack\\a'; else printf '\\033]2;ghostty-clipboard-fail\\a'; fi; sleep 1",
                 2 => "trap 'exit 0' WINCH; while :; do sleep 1; done",
-                3 => "printf '\\033]52;c;Z2hvc3R0eS1lbWJlZC1jbGlwYm9hcmQ=\\a\\033]9;4;1;73\\a'; sleep 2",
+                3 => "printf '\\033]52;c;Z2hvc3R0eS1lbWJlZC1jbGlwYm9hcmQ=\\a\\033]9;4;1;73\\a\\033]777;notify;Gemini;Session complete\\a'; sleep 2",
                 else => "sleep 2",
             } },
             .title = "Embedded Ghostty surface",
@@ -204,6 +207,13 @@ fn activate(app: *c.GtkApplication, userdata: ?*anyopaque) callconv(.c) void {
                 surface,
                 *Host,
                 progressReport,
+                host,
+                .{},
+            );
+            _ = Surface.signals.@"desktop-notification".connect(
+                surface,
+                *Host,
+                desktopNotification,
                 host,
                 .{},
             );
@@ -299,6 +309,22 @@ fn progressReport(
         progress != 73) return;
     host.progress_report = true;
     std.debug.print("embed-spike: progress report observed state={} progress={}\n", .{ state, progress });
+}
+
+fn desktopNotification(
+    surface: *Surface,
+    title: [*:0]const u8,
+    body: [*:0]const u8,
+    host: *Host,
+) callconv(.c) void {
+    if (surface != host.surfaces[3] or
+        !std.mem.eql(u8, std.mem.span(title), "Gemini") or
+        !std.mem.eql(u8, std.mem.span(body), "Session complete")) return;
+    host.desktop_notification = true;
+    std.debug.print("embed-spike: desktop notification observed title={s} body={s}\n", .{
+        title,
+        body,
+    });
 }
 
 fn titleChanged(surface: *Surface, _: *gobject.ParamSpec, host: *Host) callconv(.c) void {
