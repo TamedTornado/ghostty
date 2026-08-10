@@ -262,6 +262,20 @@ export fn ghostty_gtk_embed_surface_read_text(
     return true;
 }
 
+export fn ghostty_gtk_embed_surface_read_selection(
+    surface: ?*anyopaque,
+    callback: ?TextCallback,
+    userdata: ?*anyopaque,
+) bool {
+    const value = getSurface(surface) orelse return false;
+    const core = value.core() orelse return false;
+    const invoke = callback orelse return false;
+    const text = (core.selectionString(global.alloc()) catch return false) orelse return false;
+    defer global.alloc().free(text);
+    invoke(text.ptr, text.len, userdata);
+    return true;
+}
+
 fn readTextLocked(
     core: *@import("Surface.zig"),
     extent: TextExtent,

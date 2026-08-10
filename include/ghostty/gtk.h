@@ -138,6 +138,16 @@ bool ghostty_gtk_embed_surface_read_text(
     void *userdata
 );
 
+// Reads the current user selection synchronously and invokes callback exactly
+// once with bytes borrowed for the duration of the callback. Returns false
+// without invoking callback when there is no selection, arguments are invalid,
+// the surface is uninitialized, or the terminal-side read fails.
+bool ghostty_gtk_embed_surface_read_selection(
+    GtkWidget *surface,
+    ghostty_gtk_embed_text_callback_t callback,
+    void *userdata
+);
+
 // Starts an asynchronous paste from the standard GTK clipboard. Completion is
 // reported by the surface's existing "clipboard-read" signal.
 bool ghostty_gtk_embed_surface_request_paste(GtkWidget *surface);
