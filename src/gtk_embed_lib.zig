@@ -276,6 +276,12 @@ export fn ghostty_gtk_embed_surface_read_selection(
     return true;
 }
 
+export fn ghostty_gtk_embed_surface_foreground_process_id(surface: ?*anyopaque) u64 {
+    const value = getSurface(surface) orelse return 0;
+    const core = value.core() orelse return 0;
+    return core.getProcessInfo(.foreground_pid) orelse 0;
+}
+
 fn readTextLocked(
     core: *@import("Surface.zig"),
     extent: TextExtent,

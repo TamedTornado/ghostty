@@ -148,6 +148,10 @@ bool ghostty_gtk_embed_surface_read_selection(
     void *userdata
 );
 
+// Returns the PID of the process currently controlling the surface PTY, or
+// zero when the surface is invalid, uninitialized, or has no foreground PID.
+uint64_t ghostty_gtk_embed_surface_foreground_process_id(GtkWidget *surface);
+
 // Starts an asynchronous paste from the standard GTK clipboard. Completion is
 // reported by the surface's existing "clipboard-read" signal.
 bool ghostty_gtk_embed_surface_request_paste(GtkWidget *surface);
