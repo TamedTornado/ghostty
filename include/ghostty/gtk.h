@@ -64,6 +64,13 @@ void ghostty_gtk_embed_runtime_free(ghostty_gtk_embed_runtime_t *runtime);
 // Returns false if the runtime is null, stale, or a core tick fails.
 bool ghostty_gtk_embed_runtime_tick(ghostty_gtk_embed_runtime_t *runtime);
 
+// Hard-reloads Ghostty's default configuration stack and propagates it to all
+// existing surfaces. Existing terminal processes and widgets are preserved.
+// Returns false if the runtime is null/stale or loading/updating fails.
+bool ghostty_gtk_embed_runtime_reload_config(
+    ghostty_gtk_embed_runtime_t *runtime
+);
+
 // Returns a new GhosttySurface as a GtkWidget. The command and title are
 // copied; either may be null. Normal GTK container ownership rules apply.
 GtkWidget *ghostty_gtk_embed_surface_new(
