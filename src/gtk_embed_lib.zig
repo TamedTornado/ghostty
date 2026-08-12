@@ -7,6 +7,7 @@
 const std = @import("std");
 const apprt = @import("apprt.zig");
 const CoreApp = @import("App.zig");
+const Config = @import("config/Config.zig");
 const gobject = @import("gobject");
 const gtk = @import("gtk");
 const Surface = @import("apprt/gtk/class/surface.zig").Surface;
@@ -84,6 +85,14 @@ pub const Runtime = struct {
         try self.core_app.tick(&self.apprt_app);
     }
 
+    /// Hard-reload Ghostty's default configuration stack and propagate the
+    /// resulting configuration to every surface owned by this runtime.
+    pub fn reloadConfig(self: *Runtime) !void {
+        var config = try Config.load(global.alloc());
+        defer config.deinit();
+        try self.core_app.updateConfig(&self.apprt_app, &config);
+    }
+
     pub fn newSurface(
         self: *Runtime,
         command: ?[:0]const u8,
@@ -148,6 +157,16 @@ export fn ghostty_gtk_embed_runtime_tick(runtime: ?*Runtime) bool {
     if (active_runtime != value) return false;
     value.tick() catch |err| {
         std.log.err("GTK embedding runtime tick failed err={}", .{err});
+        return false;
+    };
+    return true;
+}
+
+export fn ghostty_gtk_embed_runtime_reload_config(runtime: ?*Runtime) bool {
+    const value = runtime orelse return false;
+    if (active_runtime != value) return false;
+    value.reloadConfig() catch |err| {
+        std.log.err("GTK embedding runtime config reload failed err={}", .{err});
         return false;
     };
     return true;
@@ -313,4 +332,8 @@ fn getSurface(surface: ?*anyopaque) ?*Surface {
         surface orelse return null,
     ));
     return gobject.ext.cast(Surface, instance);
+}
+
+test "runtime reload rejects a null handle" {
+    try std.testing.expect(!ghostty_gtk_embed_runtime_reload_config(null));
 }
