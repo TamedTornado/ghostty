@@ -157,6 +157,10 @@ pub fn build(b: *std.Build) !void {
         );
         gtk_embed_lib_step.dependOn(&install_gtk_embed_lib.step);
         gtk_embed_lib_step.dependOn(&install_gtk_embed_header.step);
+        // The embedding artifact is distributed independently of the Ghostty
+        // executable, so its build step must install the runtime resources
+        // needed by consumers as well as the library and public header.
+        resources.addStepDependencies(gtk_embed_lib_step);
 
         const gtk_embed_spike = b.addExecutable(.{
             .name = "ghostty-gtk-embed-spike",
