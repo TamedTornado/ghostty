@@ -171,6 +171,12 @@ fn buildLib(b: *std.Build, options: anytype) !*std.Build.Step.Compile {
     }
 
     if (b.lazyDependency("harfbuzz", .{})) |upstream| {
+        try flags.append(
+            b.allocator,
+            b.fmt("-ffile-prefix-map={s}=/usr/src/ghostty/vendor/harfbuzz", .{
+                upstream.path("").getPath(b),
+            }),
+        );
         lib.root_module.addIncludePath(upstream.path("src"));
         lib.root_module.addCSourceFile(.{
             .file = upstream.path("src/harfbuzz.cc"),
