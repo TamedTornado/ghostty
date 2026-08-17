@@ -80,6 +80,12 @@ fn buildGlslang(
     }
 
     if (upstream_) |upstream| {
+        try flags.append(
+            b.allocator,
+            b.fmt("-ffile-prefix-map={s}=/usr/src/ghostty/vendor/glslang", .{
+                upstream.path("").getPath(b),
+            }),
+        );
         lib.root_module.addCSourceFiles(.{
             .root = upstream.path(""),
             .flags = flags.items,

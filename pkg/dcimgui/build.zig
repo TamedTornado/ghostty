@@ -85,6 +85,12 @@ pub fn build(b: *std.Build) !void {
 
     // Add the core Dear Imgui source files
     if (b.lazyDependency("imgui", .{})) |upstream| {
+        try flags.append(
+            b.allocator,
+            b.fmt("-ffile-prefix-map={s}=/usr/src/ghostty/vendor/imgui", .{
+                upstream.path("").getPath(b),
+            }),
+        );
         lib.root_module.addIncludePath(upstream.path(""));
         lib.root_module.addCSourceFiles(.{
             .root = upstream.path(""),

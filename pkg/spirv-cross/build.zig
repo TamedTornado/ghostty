@@ -84,6 +84,12 @@ fn buildSpirvCross(
     }
 
     if (b.lazyDependency("spirv_cross", .{})) |upstream| {
+        try flags.append(
+            b.allocator,
+            b.fmt("-ffile-prefix-map={s}=/usr/src/ghostty/vendor/spirv-cross", .{
+                upstream.path("").getPath(b),
+            }),
+        );
         lib.root_module.addIncludePath(upstream.path(""));
         module.addIncludePath(upstream.path(""));
         lib.root_module.addCSourceFiles(.{

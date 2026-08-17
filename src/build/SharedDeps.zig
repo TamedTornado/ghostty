@@ -475,9 +475,17 @@ pub fn add(
     step.root_module.addCSourceFiles(.{
         .files = &.{"src/stb/stb.c"},
         .flags = if (step.rootModuleTarget().abi == .msvc)
-            &.{ "-fno-sanitize=undefined", "-fno-sanitize-trap=undefined" }
+            &.{
+                "-fno-sanitize=undefined",
+                "-fno-sanitize-trap=undefined",
+                b.fmt("-ffile-prefix-map={s}=/usr/src/ghostty", .{
+                    b.pathFromRoot("."),
+                }),
+            }
         else
-            &.{},
+            &.{b.fmt("-ffile-prefix-map={s}=/usr/src/ghostty", .{
+                b.pathFromRoot("."),
+            })},
     });
     if (step.rootModuleTarget().os.tag == .linux) {
         step.root_module.addIncludePath(b.path("src/apprt/gtk"));
