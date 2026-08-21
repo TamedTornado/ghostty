@@ -17,6 +17,10 @@ const terminal = @import("terminal/main.zig");
 const xev = global.xev;
 const surface_options = @import("gtk_embed_options.zig");
 
+// Use the same logging policy as Ghostty's executable and C library. In
+// particular, this makes GHOSTTY_LOG=false effective for embedding hosts.
+pub const std_options = @import("main_ghostty.zig").std_options;
+
 const AsyncBackend = enum(c_int) {
     default = 0,
     epoll = 1,
