@@ -131,7 +131,12 @@ export fn ghostty_gtk_embed_runtime_new_with_async_backend(
 fn createRuntime(async_backend: AsyncBackend) ?*Runtime {
     if (runtime_was_created) return null;
     if (gtk.isInitialized() != 0) {
-        std.log.err("GTK embedding runtime must be created before GTK initialization", .{});
+        // Global state does not exist yet on this rejected path, so using the
+        // process logger would itself dereference uninitialized state.
+        std.debug.print(
+            "error: GTK embedding runtime must be created before GTK initialization\n",
+            .{},
+        );
         return null;
     }
     const runtime = Runtime.create(async_backend) catch |err| {
