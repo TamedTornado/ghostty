@@ -698,6 +698,7 @@ pub const Surface = extern struct {
         /// Various input method state. All related to key input.
         in_keyevent: IMKeyEvent = .false,
         im_context: *gtk.IMMulticontext,
+        im_discard_commit: bool = false,
         im_composing: bool = false,
         im_buf: [128]u8 = undefined,
         im_len: u7 = 0,
@@ -2863,7 +2864,15 @@ pub const Surface = extern struct {
         priv.focused = focused;
 
         const ctx = priv.im_context.as(gtk.IMContext);
-        if (focused) ctx.focusIn() else ctx.focusOut();
+        if (focused) {
+            ctx.focusIn();
+        } else {
+            // Input-method implementations disagree on whether focusOut alone
+            // cancels preedit. Reset explicitly so composition owned by this
+            // surface cannot leak into a later focus cycle or another surface.
+            self.cancelInputMethod();
+            ctx.focusOut();
+        }
 
         _ = glib.idleAddOnce(idleFocus, self.ref());
         self.as(gobject.Object).notifyByPspec(properties.focused.impl.param_spec);
@@ -3276,6 +3285,8 @@ pub const Surface = extern struct {
         const priv = self.private();
         const str = std.mem.sliceTo(bytes, 0);
 
+        if (priv.im_discard_commit) return;
+
         // log.debug("GTKIM: input commit composing={} keyevent={} str={s}", .{
         //     self.im_composing,
         //     self.in_keyevent,
@@ -3386,6 +3397,16 @@ pub const Surface = extern struct {
         // create a strong reference back to ourself and we want to be
         // able to release that in unrealize.
         priv.im_context.as(gtk.IMContext).setClientWidget(self.as(gtk.Widget));
+    }
+
+    fn cancelInputMethod(self: *Self) void {
+        const priv = self.private();
+        priv.im_discard_commit = true;
+        priv.im_context.as(gtk.IMContext).reset();
+        priv.im_discard_commit = false;
+        priv.im_composing = false;
+        priv.im_len = 0;
+        if (priv.core_surface) |surface| surface.preeditCallback(null) catch {};
     }
 
     fn glareaUnrealize(
