@@ -107,7 +107,7 @@ fn buildLib(b: *std.Build, options: anytype) !*std.Build.Step.Compile {
             b.fmt("-DGTK_LAYER_SHELL_MINOR={}", .{lib_version.minor}),
             b.fmt("-DGTK_LAYER_SHELL_MICRO={}", .{lib_version.patch}),
             b.fmt("-ffile-prefix-map={s}=/usr/src/ghostty/vendor/gtk4-layer-shell", .{
-                upstream.path("").getPath(b),
+                deps.upstream.path("").getPath(b),
             }),
         },
     });

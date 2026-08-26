@@ -284,7 +284,10 @@ fn clipboardWrite(
         !std.mem.eql(u8, std.mem.span(text), "ghostty-embed-clipboard")) return;
     host.clipboard_write = true;
     const reader = host.surfaces[1] orelse return;
-    const started = reader.clipboardRequest(.standard, .paste) catch return;
+    const started = reader.clipboardRequest(
+        .standard,
+        .{ .paste = .standard },
+    ) catch return;
     std.debug.print("embed-spike: clipboard write observed read_started={}\n", .{started});
 }
 

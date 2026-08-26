@@ -117,10 +117,6 @@ pub const Runtime = struct {
     }
 };
 
-export fn ghostty_gtk_embed_runtime_new() ?*Runtime {
-    return createRuntime(.default);
-}
-
 export fn ghostty_gtk_embed_runtime_new_with_async_backend(
     backend: c_int,
 ) ?*Runtime {
@@ -179,21 +175,6 @@ export fn ghostty_gtk_embed_runtime_reload_config(runtime: ?*Runtime) bool {
         return false;
     };
     return true;
-}
-
-export fn ghostty_gtk_embed_surface_new(
-    runtime: ?*Runtime,
-    command: ?[*:0]const u8,
-    title: ?[*:0]const u8,
-) ?*anyopaque {
-    const value = runtime orelse return null;
-    if (active_runtime != value) return null;
-    return @ptrCast(value.newSurface(
-        if (command) |v| std.mem.span(v) else null,
-        if (title) |v| std.mem.span(v) else null,
-        null,
-        &.{},
-    ));
 }
 
 export fn ghostty_gtk_embed_surface_new_with_options(
@@ -327,13 +308,6 @@ fn readTextLocked(
         .rectangle = false,
     };
     return core.dumpTextLocked(global.alloc(), selection);
-}
-
-export fn ghostty_gtk_embed_surface_request_paste(
-    surface: ?*anyopaque,
-) bool {
-    const value = getSurface(surface) orelse return false;
-    return value.clipboardRequest(.standard, .paste) catch false;
 }
 
 fn getSurface(surface: ?*anyopaque) ?*Surface {
