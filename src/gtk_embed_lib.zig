@@ -8,6 +8,7 @@ const std = @import("std");
 const apprt = @import("apprt.zig");
 const CoreApp = @import("App.zig");
 const Config = @import("config/Config.zig");
+const gio = @import("gio");
 const gobject = @import("gobject");
 const gtk = @import("gtk");
 const Surface = @import("apprt/gtk/class/surface.zig").Surface;
@@ -291,6 +292,15 @@ export fn ghostty_gtk_embed_surface_foreground_process_id(surface: ?*anyopaque) 
     return core.getProcessInfo(.foreground_pid) orelse 0;
 }
 
+export fn ghostty_gtk_embed_surface_set_context_menu_model(
+    surface: ?*anyopaque,
+    model: ?*gio.MenuModel,
+) bool {
+    const value = getSurface(surface) orelse return false;
+    value.setContextMenuModel(model orelse return false);
+    return true;
+}
+
 fn readTextLocked(
     core: *@import("Surface.zig"),
     extent: TextExtent,
@@ -319,4 +329,8 @@ fn getSurface(surface: ?*anyopaque) ?*Surface {
 
 test "runtime reload rejects a null handle" {
     try std.testing.expect(!ghostty_gtk_embed_runtime_reload_config(null));
+}
+
+test "context menu model rejects null arguments" {
+    try std.testing.expect(!ghostty_gtk_embed_surface_set_context_menu_model(null, null));
 }

@@ -2179,6 +2179,12 @@ pub const Surface = extern struct {
         return true;
     }
 
+    /// Replaces the menu model rendered by this surface's native context
+    /// popover. GTK retains the model for as long as the popover uses it.
+    pub fn setContextMenuModel(self: *Self, model: *gio.MenuModel) void {
+        self.private().context_menu.setMenuModel(model);
+    }
+
     /// Set the title for this surface, copies the value. This should always
     /// be the title as set by the terminal program, not any manually set
     /// title. For manually set titles see `setTitleOverride`.

@@ -13,6 +13,7 @@ GHOSTTY_GTK_EMBED_1.0 {
         ghostty_gtk_embed_surface_read_selection;
         ghostty_gtk_embed_surface_foreground_process_id;
         ghostty_gtk_embed_surface_send_text;
+        ghostty_gtk_embed_surface_set_context_menu_model;
     local:
         *;
 };

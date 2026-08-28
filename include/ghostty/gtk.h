@@ -10,6 +10,7 @@ extern "C" {
 #endif
 
 typedef struct ghostty_gtk_embed_runtime_s ghostty_gtk_embed_runtime_t;
+typedef struct _GMenuModel GMenuModel;
 typedef struct _GtkWidget GtkWidget;
 
 typedef int32_t ghostty_gtk_embed_async_backend_t;
@@ -148,6 +149,14 @@ bool ghostty_gtk_embed_surface_read_selection(
 // Returns the PID of the process currently controlling the surface PTY, or
 // zero when the surface is invalid, uninitialized, or has no foreground PID.
 uint64_t ghostty_gtk_embed_surface_foreground_process_id(GtkWidget *surface);
+
+// Replaces the GTK menu model used by the surface's native context popover.
+// The surface retains the model according to normal GObject ownership rules.
+// Returns false for a null/non-Ghostty surface or null model.
+bool ghostty_gtk_embed_surface_set_context_menu_model(
+    GtkWidget *surface,
+    GMenuModel *model
+);
 
 #ifdef __cplusplus
 }
