@@ -4,6 +4,7 @@ const Allocator = std.mem.Allocator;
 const build_config = @import("../build_config.zig");
 const apprt = @import("../apprt.zig");
 const global = @import("../global.zig");
+const open_stderr = @import("open_stderr.zig");
 
 const log = std.log.scoped(.@"os-open");
 
@@ -85,17 +86,13 @@ fn openThread(io: std.Io, exe_: std.process.Child) void {
         var buffer: [256]u8 = undefined;
         var stream = stderr.readerStreaming(io, &buffer);
         const reader = &stream.interface;
-        while (true) {
-            const line = reader.takeDelimiterExclusive('\n') catch |outer| switch (outer) {
-                error.EndOfStream => break,
-                error.ReadFailed => break,
-                error.StreamTooLong => reader.take(buffer.len) catch |inner| switch (inner) {
-                    error.ReadFailed => break,
-                    error.EndOfStream => break,
-                },
-            };
+        while (open_stderr.next(reader) catch null) |line| {
             log.warn("open stderr={s}", .{line});
         }
     }
     _ = exe.wait(io) catch {};
+}
+
+test {
+    _ = open_stderr;
 }
