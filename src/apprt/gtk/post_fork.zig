@@ -11,8 +11,6 @@ const internal_os = @import("../../os/main.zig");
 const Command = @import("../../Command.zig");
 const cgroup = @import("./cgroup.zig");
 
-const Application = @import("class/application.zig").Application;
-
 pub const PostForkInfo = struct {
     gtk_single_instance: configpkg.Config.GtkSingleInstance,
     linux_cgroup: configpkg.Config.LinuxCgroup,
@@ -60,15 +58,20 @@ pub fn postFork(cmd: *Command) Command.PostForkError!void {
 
     log.debug("beginning transition to transient systemd scope {s}", .{expected_cgroup});
 
-    const app = Application.default();
-
-    const dbus = app.as(gio.Application).getDbusConnection() orelse {
+    // Cgroup scopes belong to the session bus, not application registration.
+    // An embedding host owns desktop registration while the private Ghostty
+    // application may deliberately remain unregistered. GIO shares this bus
+    // connection with the registered standalone application as well.
+    var bus_error: ?*glib.Error = null;
+    defer if (bus_error) |err| err.free();
+    const dbus = gio.busGetSync(.session, null, &bus_error) orelse {
         if (cmd.rt_post_fork_info.linux_cgroup_hard_fail) {
             log.err("dbus connection required for cgroup isolation, exiting", .{});
             return error.PostForkError;
         }
         return;
     };
+    defer dbus.unref();
 
     cgroup.createScope(
         dbus,
