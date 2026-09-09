@@ -237,12 +237,17 @@ pub fn remapKey(
     keyval: c_uint,
     is_modifier: bool,
 ) input.Key {
-    if (keyFromKeyval(keyval)) |remapped| {
+    if (keyFromKeyval(keyval) orelse keyFromKeyval(gdk.keyvalToLower(keyval))) |remapped| {
         if (physical_key.shouldBeRemappable() or remapped.shouldBeRemappable())
             return remapped;
     }
 
     if (is_modifier or isModifierKeyval(keyval)) return .unidentified;
+    // Virtual keyboards and XKB remaps may place printable symbols on Ctrl,
+    // F-keys, etc. Never synthesize those physical keys when the logical value
+    // is text that our key table doesn't represent (e.g. '>' or non-Latin text).
+    if (physical_key.shouldBeRemappable() and gdk.keyvalToUnicode(keyval) >= 0x20)
+        return .unidentified;
     return physical_key;
 }
 
@@ -287,6 +292,10 @@ fn isModifierKeyval(keyval: c_uint) bool {
 
 test "remap key" {
     const testing = std.testing;
+    try testing.expectEqual(input.Key.key_c, remapKey(.control_left, gdk.KEY_C, false));
+    try testing.expectEqual(input.Key.unidentified, remapKey(.f5, gdk.KEY_greater, false));
+    try testing.expectEqual(input.Key.unidentified, remapKey(.alt_left, gdk.KEY_Greek_alpha, false));
+    try testing.expectEqual(input.Key.control_left, remapKey(.control_left, gdk.KEY_Control_L, true));
 
     // XKB remaps between non-writing-system keys are honored.
     try testing.expectEqual(
