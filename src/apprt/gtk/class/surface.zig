@@ -1858,6 +1858,12 @@ pub const Surface = extern struct {
             null,
         );
 
+        // Embedding hosts own desktop registration and consume the signal
+        // above. Their engine application is intentionally unregistered; GIO
+        // cannot deliver through it. Standalone Ghostty retains native delivery.
+        const gio_app = app.as(gio.Application);
+        if (gio_app.getIsRegistered() == 0) return;
+
         const t = switch (title.len) {
             0 => "Ghostty",
             else => title,
@@ -1879,7 +1885,6 @@ pub const Surface = extern struct {
 
         // We set the notification ID to the body content. If the content is the
         // same, this notification may replace a previous notification
-        const gio_app = app.as(gio.Application);
         gio_app.sendNotification(body, notification);
     }
 
