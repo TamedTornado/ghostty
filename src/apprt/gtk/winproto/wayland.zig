@@ -26,6 +26,38 @@ const gtk_version = @import("../gtk_version.zig");
 
 const log = std.log.scoped(.winproto_wayland);
 
+// zig-wayland exposes the interface ABI but not this diagnostic accessor.
+extern "c" fn wl_display_get_protocol_error(
+    display: *wl.Display,
+    interface: *?*const wl.Interface,
+    object_id: *u32,
+) u32;
+
+var failure_logged = std.atomic.Value(bool).init(false);
+
+/// Called from GDK's fatal display-I/O log, before it exits. No roundtrip,
+/// allocation, protocol tracing, terminal text, or compositor message payload.
+/// The interface name is static protocol metadata and is length-bounded.
+pub fn logDisplayFailure() void {
+    const saved_errno = std.c._errno().*;
+    if (failure_logged.swap(true, .monotonic)) return;
+    const gdk_display = gdk.Display.getDefault() orelse return;
+    const native = gobject.ext.cast(gdk_wayland.WaylandDisplay, gdk_display) orelse return;
+    const display: *wl.Display = @ptrCast(@alignCast(native.getWlDisplay() orelse return));
+    const display_error = display.getError();
+    var interface: ?*const wl.Interface = null;
+    var object_id: u32 = 0;
+    const protocol_code = wl_display_get_protocol_error(display, &interface, &object_id);
+    const name = if (interface) |value| name: {
+        var len: usize = 0;
+        while (len < 96 and value.name[len] != 0) : (len += 1) {}
+        break :name value.name[0..len];
+    } else "none";
+    log.err("display-failure backend=wayland errno={d} display-error={d} protocol-code={d} object-id={d} interface={s}", .{
+        saved_errno, display_error, protocol_code, object_id, name,
+    });
+}
+
 /// Wayland state that contains application-wide Wayland objects (e.g. wl_display).
 pub const App = struct {
     display: *wl.Display,

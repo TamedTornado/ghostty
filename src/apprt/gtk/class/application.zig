@@ -87,6 +87,17 @@ fn glibLogWriterFunction(
     const message = message_ orelse return .unhandled;
     const domain = domain_ orelse "«unknown»";
 
+    // GDK exits directly on a display I/O failure: Rust panic hooks and normal
+    // teardown never run. Capture the native error before forwarding its log.
+    if (@import("build_options").wayland and
+        std.mem.eql(u8, domain, "Gdk") and
+        (std.mem.startsWith(u8, message, "Error flushing display:") or
+            std.mem.startsWith(u8, message, "Error reading events from display:") or
+            std.mem.startsWith(u8, message, "Lost connection to Wayland compositor")))
+    {
+        winprotopkg.wayland.logDisplayFailure();
+    }
+
     if (level.level_error) {
         glib_log.err("ERROR: {s}: {s}", .{ domain, message });
         return .handled;
