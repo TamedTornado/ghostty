@@ -11,6 +11,8 @@ const Surface = @import("apprt/gtk/class/surface.zig").Surface;
 const gobject = @import("gobject");
 const global = @import("global.zig");
 const terminal = @import("terminal/main.zig");
+const Renderer = @import("renderer.zig").Renderer;
+const gl = @import("opengl");
 
 const c = @import("adw_c");
 
@@ -41,6 +43,8 @@ const Host = struct {
     resize_observed: bool = false,
     valid_content_scales: usize = 0,
     minimum_content_scale: f32 = 0,
+    first_frame: bool = false,
+    first_frame_checked: usize = 0,
 };
 
 pub fn main(minimal: std.process.Init.Minimal) !u8 {
@@ -68,6 +72,7 @@ pub fn main(minimal: std.process.Init.Minimal) !u8 {
         .application = app,
     };
     host.interaction = c.g_getenv("GHOSTTY_EMBED_SPIKE_INTERACTION") != null;
+    host.first_frame = c.g_getenv("GHOSTTY_EMBED_SPIKE_FIRST_FRAME") != null;
     if (c.g_getenv("GHOSTTY_EMBED_SPIKE_SURFACES")) |value| {
         const parsed = std.fmt.parseInt(usize, std.mem.span(value), 10) catch return 3;
         if (parsed == 0 or parsed > 16) return 3;
@@ -94,6 +99,7 @@ pub fn main(minimal: std.process.Init.Minimal) !u8 {
         host.surfaces_initialized != host.expected_surfaces or
         host.children_exited != host.expected_surfaces or
         host.tick_failed or
+        (host.first_frame and host.first_frame_checked != host.expected_surfaces) or
         (host.interaction and
             (!host.keyboard_sent or
                 !host.keyboard_acknowledged or
@@ -230,9 +236,18 @@ fn activate(app: *c.GtkApplication, userdata: ?*anyopaque) callconv(.c) void {
     _ = c.g_timeout_add(if (host.interaction) 6500 else 5000, quit, host);
 }
 
-fn surfaceInitialized(_: *Surface, host: *Host) callconv(.c) void {
+fn surfaceInitialized(surface: *Surface, host: *Host) callconv(.c) void {
     host.surfaces_initialized += 1;
     std.debug.print("embed-spike: core surface initialized count={}\n", .{host.surfaces_initialized});
+    if (host.first_frame) {
+        checkFirstFrame(surface, host) catch |err| {
+            host.tick_failed = true;
+            std.debug.print("embed-spike: first frame FAIL err={}\n", .{err});
+            return;
+        };
+        host.first_frame_checked += 1;
+        std.debug.print("embed-spike: first frame deferred until terminal snapshot\n", .{});
+    }
     if (host.interaction and host.surfaces_initialized == host.expected_surfaces) {
         _ = c.g_timeout_add(100, sendKeyboard, host);
         _ = c.g_timeout_add(250, cycleFocus, host);
@@ -241,6 +256,39 @@ fn surfaceInitialized(_: *Surface, host: *Host) callconv(.c) void {
         _ = c.g_timeout_add(2000, requestResize, host);
         _ = c.g_timeout_add(2300, verifyResize, host);
     }
+}
+
+// GTK may ask for a frame before the renderer worker has built its first
+// terminal snapshot. Exercise that ordering without timing sleeps or workers:
+// initialize a fresh renderer in the real surface's current GL context and
+// ask it to draw immediately. It must not submit unprepared cell data.
+fn checkFirstFrame(surface: *Surface, host: *Host) !void {
+    const core = surface.core() orelse return error.NoCoreSurface;
+    const config = host.runtime.app.getConfig();
+    defer config.unref();
+    const alloc = global.alloc();
+    var probe = try Renderer.init(alloc, .{
+        .config = try .init(alloc, config.get()),
+        .font_grid = core.renderer.font_grid,
+        .size = core.size,
+        .surface_mailbox = core.renderer.surface_mailbox,
+        .rt_surface = core.rt_surface,
+        .thread = &core.renderer_thread,
+    });
+    defer probe.deinit();
+
+    var viewport: [4]gl.c.GLint = undefined;
+    gl.glad.context.GetIntegerv.?(gl.c.GL_VIEWPORT, &viewport);
+    gl.glad.context.Viewport.?(0, 0, 64, 64);
+    defer gl.glad.context.Viewport.?(viewport[0], viewport[1], viewport[2], viewport[3]);
+    try probe.drawFrame(true);
+    if (probe.api.last_target != null) return error.UnpreparedFrameWasPresented;
+
+    // The guard must not suppress the first real frame once snapshot data is
+    // ready. Use the existing terminal state and the same real GL boundary.
+    try probe.updateFrame(&core.renderer_state, false);
+    try probe.drawFrame(true);
+    if (probe.api.last_target == null) return error.PreparedFrameWasNotPresented;
 }
 
 fn verifyContentScales(userdata: ?*anyopaque) callconv(.c) c_int {

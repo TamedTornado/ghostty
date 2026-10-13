@@ -1608,6 +1608,11 @@ pub fn Renderer(comptime GraphicsAPI: type) type {
             self.draw_mutex.lockUncancelable(global.io());
             defer self.draw_mutex.unlock(global.io());
 
+            // GTK can request a draw before the renderer worker has produced
+            // its first terminal snapshot. Grid uniforms and GPU cell buffers
+            // are not ready yet; the first update will schedule another draw.
+            if (self.cells.size.columns == 0 or self.cells.size.rows == 0) return;
+
             // After the graphics API is complete (so we defer) we want to
             // update our scrollbar state.
             defer if (self.scrollbar_dirty) {
