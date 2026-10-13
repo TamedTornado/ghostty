@@ -3343,7 +3343,11 @@ pub const Surface = extern struct {
         const priv = self.private();
         const str = std.mem.sliceTo(bytes, 0);
 
-        if (priv.im_discard_commit) return;
+        // Reset can emit a synchronous commit, but some input methods also
+        // commit from focusOut or deliver an earlier request asynchronously.
+        // Once this surface loses focus, its uncommitted preedit is cancelled
+        // and must not reach the PTY when focus later returns.
+        if (priv.im_discard_commit or !priv.focused) return;
 
         // log.debug("GTKIM: input commit composing={} keyevent={} str={s}", .{
         //     self.im_composing,
